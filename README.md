@@ -252,16 +252,6 @@ After changing settings, run:
 php artisan optimize:clear
 ```
 
-## Development
-
-```bash
-composer install
-npm install
-npm run build
-npm run dev
-./vendor/bin/phpunit
-```
-
 ## Important Files
 
 | File | Purpose |
