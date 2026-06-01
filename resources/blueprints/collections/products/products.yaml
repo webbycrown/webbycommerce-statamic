@@ -1,0 +1,230 @@
+title: Products
+tabs:
+  main:
+    display: Main
+    sections:
+      -
+        display: 'Product Information'
+        fields:
+          -
+            handle: title
+            field:
+              type: text
+              required: false
+              display: 'Product Name'
+              validate:
+                - required
+          -
+            handle: slug
+            field:
+              type: slug
+              localizable: true
+              validate:
+                - required
+                - 'max:200'
+              display: Slug
+          -
+            handle: description
+            field:
+              type: markdown
+              display: Description
+          -
+            handle: status
+            field:
+              type: select
+              display: Status
+              options:
+                draft: Draft
+                active: Active
+              default: draft
+              listable: true
+              validate:
+                - required
+          -
+            handle: product_image
+            field:
+              type: assets
+              display: 'Product Image'
+              container: assets
+              max_items: 1
+              mode: grid
+  pricing:
+    display: 'Pricing & Inventory'
+    sections:
+      -
+        display: Pricing
+        fields:
+          -
+            handle: price
+            field:
+              type: text
+              display: Price
+              input_type: number
+              validate:
+                - required
+                - numeric
+                - 'min:0'
+              listable: true
+          -
+            handle: compare_price
+            field:
+              type: text
+              display: 'Compare Price'
+              input_type: number
+              validate:
+                - numeric
+                - 'min:0'
+      -
+        display: Inventory
+        fields:
+          -
+            handle: sku
+            field:
+              type: text
+              display: SKU
+              validate:
+                - required
+          -
+            handle: stock
+            field:
+              type: integer
+              display: 'Stock Level'
+              listable: true
+              validate:
+                - required
+          -
+            handle: track_stock
+            field:
+              type: toggle
+              display: 'Track Stock'
+              default: true
+  variants:
+    display: Variants
+    sections:
+      -
+        display: 'Product Variants'
+        instructions: 'Define size, colour, or any other options. Leave empty for a simple product.'
+        fields:
+          -
+            handle: has_variants
+            field:
+              type: toggle
+              display: 'Enable Variants'
+              instructions: 'Turn on to sell this product in multiple variants.'
+          -
+            handle: variant_options
+            field:
+              type: grid
+              display: 'Variant Options (Attributes)'
+              add_row: 'Add Option'
+              instructions: 'e.g. Option name = "Colour", values = "Red, Blue, Green"'
+              if:
+                has_variants: 'equals true'
+              fields:
+                -
+                  handle: option_name
+                  field:
+                    type: text
+                    display: 'Option Name'
+                    instructions: 'e.g. Size, Colour'
+                    required: true
+                -
+                  handle: option_values
+                  field:
+                    type: text
+                    display: 'Option Values (comma-separated)'
+                    instructions: 'e.g. Small, Medium, Large'
+                    required: true
+          -
+            handle: variants
+            field:
+              type: grid
+              display: Variants
+              add_row: 'Add Variant'
+              if:
+                has_variants: 'equals true'
+              fields:
+                -
+                  handle: name
+                  field:
+                    type: text
+                    display: 'Variant Name'
+                    instructions: 'e.g. Red / Large'
+                    required: true
+                -
+                  handle: sku
+                  field:
+                    type: text
+                    display: SKU
+                -
+                  handle: price
+                  field:
+                    type: text
+                    input_type: number
+                    display: Price
+                    instructions: 'Leave blank to use the base product price.'
+                    validate:
+                      - nullable
+                      - numeric
+                      - 'min:0'
+                -
+                  handle: stock
+                  field:
+                    type: integer
+                    display: Stock
+                -
+                  handle: image
+                  field:
+                    type: assets
+                    display: 'Variant Image'
+                    container: assets
+                    max_items: 1
+                    mode: grid
+  seo:
+    display: SEO
+    sections:
+      -
+        display: 'Search Engine'
+        fields:
+          -
+            handle: meta_title
+            field:
+              type: text
+              display: 'Meta Title'
+          -
+            handle: meta_description
+            field:
+              type: textarea
+              display: 'Meta Description'
+              character_limit: 160
+  tax:
+    display: Tax
+    sections:
+      -
+        display: 'Tax Settings'
+        fields:
+          -
+            handle: exempt_from_tax
+            field:
+              type: toggle
+              display: 'Exempt from Tax'
+              instructions: 'If enabled, this product will not have tax applied'
+          -
+            handle: tax_category
+            field:
+              max_items: 1
+              mode: select
+              collections:
+                - tax_categories
+              type: entries
+              display: 'Tax Category'
+          -
+            handle: tax_rate
+            field:
+              max_items: 1
+              mode: select
+              collections:
+                - tax_rates
+              type: entries
+              display: 'Legacy Direct Tax Rate'
+              instructions: 'Optional fallback for older products. Prefer Tax Category.'

@@ -1,0 +1,254 @@
+title: 'Webby-Commerce Settings'
+tabs:
+  general:
+    display: General
+    sections:
+      -
+        display: 'Store Settings'
+        instructions: 'General store configuration.'
+        fields:
+          -
+            handle: currency
+            field:
+              type: select
+              display: Currency
+              instructions: 'Default currency for all transactions.'
+              options:
+                USD: 'USD ($)'
+                EUR: 'EUR (€)'
+                GBP: 'GBP (£)'
+                INR: 'INR (₹)'
+                CAD: 'CAD (C$)'
+                AUD: 'AUD (A$)'
+                JPY: 'JPY (¥)'
+              default: USD
+              required: true
+              searchable: true
+          -
+            handle: store_name
+            field:
+              type: text
+              display: 'Store Name'
+              instructions: 'Name of your store (used in emails and receipts).'
+          -
+            handle: store_email
+            field:
+              type: text
+              display: 'Store Email'
+              instructions: 'Admin email address for order notifications.'
+              input_type: email
+
+  shipping:
+    display: Shipping
+    sections:
+      -
+        display: 'Shipping Methods'
+        instructions: 'Define all your shipping methods and their location-based rates. Each method can have multiple location rules.'
+        fields:
+          -
+            handle: shipping_locations
+            field:
+                type: grid
+                display: 'Shipping Locations'
+                reorderable: true
+                add_row: 'Add Location'
+                instructions: 'Add one or more location-based shipping charges. Use * as wildcard for any value.'
+                fields:
+                  -
+                    handle: country
+                    field:
+                      type: text
+                      display: Country
+                      default: '*'
+                      instructions: 'Country code only (e.g., US, CA, IN). Enter a single code or comma-separated list. Use * for all.'
+                  -
+                    handle: state
+                    field:
+                      type: text
+                      display: State
+                      default: '*'
+                      instructions: 'State/Province (e.g., Gujarat, CA). Use * for all.'
+                  -
+                      handle: city
+                      field:
+                        type: text
+                        display: City
+                        default: '*'
+                        instructions: 'City name. Use * for all.'
+                  -
+                    handle: zip_code
+                    field:
+                      type: text
+                      display: 'Zip Code'
+                      default: '*'
+                      instructions: 'ZIP/Postal code. Use * for all.'
+                  -
+                    handle: shipping_charge
+                    field:
+                      type: float
+                      display: 'Shipping Charge'
+                      instructions: 'Charge amount for this location (ignored for Free Shipping & Local Pickup types).'
+                      required: true
+                  -
+                    handle: min_order_amount
+                    field:
+                      type: float
+                      display: 'Min Order Amount'
+                      instructions: 'Minimum cart subtotal (blank = no minimum).'
+                  -
+                    handle: max_order_amount
+                    field:
+                      type: float
+                      display: 'Max Order Amount'
+                      instructions: 'Maximum cart subtotal (blank = no maximum).'
+                  -
+                    handle: is_active
+                    field:
+                      type: toggle
+                      display: Active
+                      default: true
+
+  payment:
+    display: Payment
+    sections:
+      -
+        display: 'Payment Gateway'
+        instructions: 'Configure the payment gateway for your store.'
+        fields:
+          -
+            handle: payment_gateway
+            field:
+              type: select
+              display: 'Default Payment Gateway'
+              instructions: 'The primary gateway used for processing payments.'
+              options:
+                stripe: Stripe
+                paypal: PayPal
+                cod: 'Cash on Delivery'
+              default: stripe
+              required: true
+      -
+        display: 'Stripe Settings'
+        instructions: 'Stripe API credentials. Keep these secret.'
+        fields:
+          -
+            handle: stripe_publishable_key
+            field:
+              type: text
+              display: 'Publishable Key'
+              instructions: 'Your Stripe publishable (public) key.'
+          -
+            handle: stripe_secret_key
+            field:
+              type: text
+              display: 'Secret Key'
+              instructions: 'Your Stripe secret key. Never share this.'
+              input_type: password
+          -
+            handle: stripe_webhook_secret
+            field:
+              type: text
+              display: 'Webhook Secret'
+              instructions: 'Stripe webhook signing secret.'
+              input_type: password
+      -
+        display: 'PayPal Settings'
+        instructions: 'PayPal API credentials.'
+        fields:
+          -
+            handle: paypal_client_id
+            field:
+              type: text
+              display: 'Client ID'
+              instructions: 'Your PayPal client ID.'
+          -
+            handle: paypal_secret
+            field:
+              type: text
+              display: Secret
+              instructions: 'Your PayPal secret.'
+              input_type: password
+
+  orders:
+    display: Orders
+    sections:
+      -
+        display: 'Order Settings'
+        instructions: 'Configuration for order processing and numbering.'
+        fields:
+          -
+            handle: order_number_prefix
+            field:
+              type: text
+              display: 'Order Number Prefix'
+              instructions: 'Prefix for generated order numbers (e.g., ORD → ORD-00001).'
+              default: ORD
+
+  cart:
+    display: Cart
+    sections:
+      -
+        display: 'Cart Settings'
+        instructions: 'Session and expiry settings for the shopping cart.'
+        fields:
+          -
+            handle: cart_session_key
+            field:
+              type: text
+              display: 'Session Key'
+              instructions: 'Session key used to store cart data.'
+              default: cart
+          -
+            handle: cart_expires_days
+            field:
+              type: integer
+              display: 'Cart Expiry (Days)'
+              instructions: 'Number of days before an inactive cart expires.'
+              default: 7
+
+  emails:
+    display: Emails
+    sections:
+      -
+        display: 'Order Confirmation'
+        instructions: 'Settings for the order confirmation email.'
+        fields:
+          -
+            handle: email_order_confirmation_enabled
+            field:
+              type: toggle
+              display: 'Enable Order Confirmation Email'
+              instructions: 'Send an email when a new order is placed.'
+              default: true
+          -
+            handle: email_order_confirmation_to_customer
+            field:
+              type: toggle
+              display: 'Send to Customer'
+              instructions: 'Send the order confirmation email to the customer.'
+              default: true
+          -
+            handle: email_order_confirmation_to_admin
+            field:
+              type: toggle
+              display: 'Send to Admin'
+              instructions: 'Also send the order confirmation to the admin email.'
+              default: true
+          -
+            handle: email_order_confirmation_admin_email
+            field:
+              type: text
+              display: 'Admin Email'
+              instructions: 'The admin email address that receives order confirmation copies.'
+              input_type: email
+      -
+        display: 'Shipping Notification'
+        instructions: 'Settings for the order shipped email.'
+        fields:
+          -
+            handle: email_order_shipped_enabled
+            field:
+              type: toggle
+              display: 'Enable Shipped Email'
+              instructions: 'Send an email when an order is marked as shipped.'
+              default: true

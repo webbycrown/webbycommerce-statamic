@@ -1,0 +1,362 @@
+title: Orders
+
+tabs:
+  main:
+    display: Main
+    sections:
+      - display: Order Information
+        fields:
+          - handle: title
+            field:
+              type: text
+              display: Title
+              visibility: hidden
+              validate:
+                - required
+
+          - handle: order_number
+            field:
+              type: text
+              display: Order Number
+              visibility: read_only
+              listable: true
+              width: 50
+
+          - handle: reference
+            field:
+              type: text
+              display: Order Reference
+              visibility: read_only
+              width: 50
+
+          - handle: customer
+            field:
+              type: entries
+              display: Customer
+              collections:
+                - customers
+              max_items: 1
+              create: true
+              visibility: read_only
+              width: 50
+
+          - handle: coupon
+            field:
+              type: text
+              display: Coupon
+
+          - handle: status
+            field:
+              type: select
+              display: Order Status
+              options:
+                pending: Pending
+                paid: Paid
+                processing: Processing
+                fulfilled: Fulfilled
+                cancelled: Cancelled
+              default: pending
+              listable: true
+              width: 50
+
+          - handle: payment_status
+            field:
+              type: select
+              display: Payment Status
+              options:
+                pending: Pending
+                paid: Paid
+                failed: Failed
+                refunded: Refunded
+                cancelled: Cancelled
+              default: pending
+
+          - handle: gateway
+            field:
+              type: text
+              display: Payment Gateway
+              visibility: read_only
+              width: 50
+
+          - handle: shipping_method
+            field:
+              type: text
+              display: Shipping Method
+              visibility: read_only
+              max_items: 1
+              width: 50
+
+          - handle: date
+            field:
+              type: date
+              display: Order Date
+              visibility: read_only
+              listable: true
+              width: 50
+
+  customer:
+    display: Customer Information
+    sections:
+      - display: Billing Address
+        fields:
+          - handle: use_shipping_address_for_billing
+            field:
+              type: toggle
+              display: Use Shipping Address for Billing?
+              visibility: read_only
+
+          - handle: billing_name
+            field:
+              type: text
+              display: Billing Name
+              visibility: read_only
+              unless:
+                use_shipping_address_for_billing: "equals true"
+
+          - handle: billing_address
+            field:
+              type: text
+              display: Billing Address Line 1
+              visibility: read_only
+              width: 50
+              unless:
+                use_shipping_address_for_billing: "equals true"
+
+          - handle: billing_address_line2
+            field:
+              type: text
+              display: Billing Address Line 2
+              visibility: read_only
+              width: 50
+              unless:
+                use_shipping_address_for_billing: "equals true"
+
+          - handle: billing_city
+            field:
+              type: text
+              display: Billing City
+              visibility: read_only
+              width: 50
+              unless:
+                use_shipping_address_for_billing: "equals true"
+
+          - handle: billing_postal_code
+            field:
+              type: text
+              display: Billing Postal Code
+              visibility: read_only
+              width: 50
+              unless:
+                use_shipping_address_for_billing: "equals true"
+
+          - handle: billing_region
+            field:
+              type: text
+              display: Billing Region
+              visibility: read_only
+              width: 50
+              unless:
+                use_shipping_address_for_billing: "equals true"
+
+          - handle: billing_country
+            field:
+              type: text
+              display: Billing Country
+              visibility: read_only
+              width: 50
+              unless:
+                use_shipping_address_for_billing: "equals true"
+
+      - display: Shipping Address
+        fields:
+          - handle: shipping_name
+            field:
+              type: text
+              display: Shipping Name
+              visibility: read_only
+
+          - handle: shipping_address
+            field:
+              type: text
+              display: Shipping Address Line 1
+              visibility: read_only
+              width: 50
+
+          - handle: shipping_address_line2
+            field:
+              type: text
+              display: Shipping Address Line 2
+              visibility: read_only
+              width: 50
+
+          - handle: shipping_city
+            field:
+              type: text
+              display: Shipping City
+              visibility: read_only
+              width: 50
+
+          - handle: shipping_postal_code
+            field:
+              type: text
+              display: Shipping Postal Code
+              visibility: read_only
+              width: 50
+
+          - handle: shipping_region
+            field:
+              type: text
+              display: Shipping Region
+              visibility: read_only
+              width: 50
+
+          - handle: shipping_country
+            field:
+              type: text
+              display: Shipping Country
+              visibility: read_only
+              width: 50
+
+  items:
+    display: Order Items
+    sections:
+      - display: Line Items
+        fields:
+          - handle: items
+            field:
+              type: grid
+              display: Line Items
+              reorderable: false
+              add_row: Add Line Item
+              mode: stacked
+              fields:
+                - handle: id
+                  field:
+                    type: hidden
+
+                - handle: product
+                  field:
+                    type: entries
+                    display: Product
+                    collections:
+                      - products
+                    max_items: 1
+                    visibility: read_only
+                    width: 50
+
+                - handle: variant
+                  field:
+                    type: text
+                    display: Variant
+                    visibility: read_only
+                    width: 50
+
+                - handle: quantity
+                  field:
+                    type: text
+                    display: Quantity
+                    input_type: number
+                    visibility: read_only
+                    width: 33
+
+                - handle: total
+                  field:
+                    type: text
+                    display: Total
+                    visibility: read_only
+                    width: 33
+
+                - handle: shipping
+                  field:
+                    type: text
+                    display: Shipping
+                    visibility: read_only
+                    width: 33
+
+                - handle: tax
+                  field:
+                    type: text
+                    display: Tax
+                    width: 33
+
+                - handle: metadata
+                  field:
+                    type: array
+                    display: Metadata
+                    mode: dynamic
+                    visibility: read_only
+
+  totals:
+    display: Totals
+    sections:
+      - display: Order Totals
+        fields:
+          - handle: items_total
+            field:
+              type: text
+              display: Items Total
+              visibility: read_only
+              save_zero_value: true
+              width: 33
+
+          - handle: coupon_total
+            field:
+              type: text
+              display: Coupon Total
+              visibility: read_only
+              save_zero_value: true
+              width: 33
+
+          - handle: shipping_total
+            field:
+              type: text
+              display: Shipping Total
+              visibility: read_only
+              save_zero_value: true
+              listable: true
+              width: 33
+
+          - handle: tax_total
+            field:
+              type: text
+              display: Tax Total
+              visibility: read_only
+              save_zero_value: true
+              width: 33
+
+          - handle: grand_total
+            field:
+              type: text
+              display: Grand Total
+              visibility: read_only
+              save_zero_value: true
+              listable: true
+              width: 33
+
+  notes:
+    display: Notes
+    sections:
+      - display: Additional Information
+        fields:
+          - handle: notes
+            field:
+              type: textarea
+              display: Order Notes
+
+  sidebar:
+    display: Sidebar
+    sections:
+      - fields:
+          - handle: slug
+            field:
+              type: hidden
+              localizable: true
+              visibility: read_only
+              validate:
+                - required
+
+          - handle: status_log
+            field:
+              type: text
+              display: Status Log
+              hide_display: true

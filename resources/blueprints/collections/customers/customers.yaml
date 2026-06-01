@@ -1,0 +1,66 @@
+title: Customers
+tabs:
+  main:
+    display: Main
+    sections:
+      - display: Personal Information
+        fields:
+          - handle: title
+            field:
+              type: text
+              display: Full Name
+              required: true
+          - handle: first_name
+            field:
+              type: text
+              display: First Name
+          - handle: last_name
+            field:
+              type: text
+              display: Last Name
+          - handle: email
+            field:
+              type: text
+              input_type: email
+              display: Email
+              required: true
+              listable: true
+          - handle: phone
+            field:
+              type: text
+              display: Phone Number
+  contact:
+    display: Contact Information
+    sections:
+      - display: Addresses
+        fields:
+          - handle: addresses
+            field:
+              type: table
+              display: Saved Addresses
+  stats:
+    display: Statistics
+    sections:
+      - display: Customer Statistics
+        fields:
+          - handle: total_orders
+            field:
+              type: integer
+              display: Total Orders
+              read_only: true
+              listable: true
+          - handle: total_spent
+            field:
+              type: text
+              display: Total Spent
+              input_type: number
+              validate:
+                - numeric
+                - min:0
+              read_only: true
+              listable: true
+          - handle: date
+            field:
+              type: date
+              display: Customer Since
+              read_only: true

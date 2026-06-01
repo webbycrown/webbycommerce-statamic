@@ -1,0 +1,40 @@
+{
+    "name": "webbycrown/webbycommerce-statamic",
+    "description": "Webby Commerce addon for Statamic",
+    "keywords": [
+        "statamic",
+        "addon",
+        "webbycommerce-statamic"
+    ],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "WebbyCrown",
+            "homepage": "https://github.com/webbycrown/webbycommerce-statamic"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "statamic/cms": "*"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0",
+        "phpunit/phpunit": "^10.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "WebbyCrown\\WebbyCommerceStatamic\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "WebbyCrown\\WebbyCommerceStatamic\\ServiceProvider"
+            ]
+        },
+        "statamic": {
+            "name": "Webby Commerce",
+            "description": "Webby Commerce addon for Statamic by WebbyCrown"
+        }
+    }
+}

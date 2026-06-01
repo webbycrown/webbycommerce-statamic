@@ -1,0 +1,11 @@
+{
+  "resources/js/cp.js": {
+    "file": "assets/cp-DFa4j1FR.js",
+    "name": "cp",
+    "src": "resources/js/cp.js",
+    "isEntry": true,
+    "css": [
+      "assets/cp-BmAVGTu2.css"
+    ]
+  }
+}

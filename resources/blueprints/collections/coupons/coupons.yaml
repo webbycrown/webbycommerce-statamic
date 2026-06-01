@@ -1,0 +1,55 @@
+title: Coupon
+tabs:
+  main:
+    display: Main
+    sections:
+      -
+        fields:
+          -
+            handle: title
+            field:
+              type: text
+              display: Name
+              instructions: 'Internal name for the coupon'
+              required: true
+          -
+            handle: code
+            field:
+              type: text
+              display: Code
+              instructions: 'The exact code customers will enter at checkout'
+              required: true
+          -
+            handle: type
+            field:
+              type: select
+              display: Type
+              options:
+                percentage: 'Percentage (%)'
+                fixed: 'Fixed Amount'
+              default: percentage
+              required: true
+          -
+            handle: value
+            field:
+              type: text
+              input_type: number
+              display: Value
+              instructions: 'The discount value (e.g., 20 for 20% or 10 for $10)'
+              required: true
+          -
+            handle: use_limit
+            field:
+              type: text
+              input_type: number
+              display: 'Use Limit'
+              instructions: 'Maximum number of times this coupon can be used across all orders (leave blank for unlimited)'
+          -
+            handle: redeemed_count
+            field:
+              type: text
+              input_type: number
+              display: 'Redeemed Count'
+              instructions: 'Total times this coupon has been successfully redeemed'
+              default: 0
+              read_only: true

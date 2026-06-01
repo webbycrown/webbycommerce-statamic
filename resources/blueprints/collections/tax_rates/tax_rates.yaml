@@ -1,0 +1,39 @@
+title: 'Tax Rate'
+tabs:
+  main:
+    display: Main
+    sections:
+      -
+        fields:
+          -
+            handle: name
+            field:
+              type: text
+              display: Name
+              instructions: 'E.g., Standard Tax, Reduced Tax'
+              required: true
+          -
+            handle: rate
+            field:
+              type: float
+              display: Rate (%)
+              instructions: 'Enter the percentage (e.g., 20 for 20%)'
+              required: true
+          -
+            handle: category
+            field:
+              max_items: 1
+              mode: select
+              collections:
+                - tax_categories
+              type: entries
+              display: 'Tax Category'
+          -
+            handle: zone
+            field:
+              max_items: 1
+              mode: select
+              collections:
+                - tax_zones
+              type: entries
+              display: 'Tax Zone'

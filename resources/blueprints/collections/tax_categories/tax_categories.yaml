@@ -1,0 +1,18 @@
+title: 'Tax Category'
+tabs:
+  main:
+    display: Main
+    sections:
+      -
+        fields:
+          -
+            handle: name
+            field:
+              type: text
+              display: Name
+              required: true
+          -
+            handle: description
+            field:
+              type: textarea
+              display: Description

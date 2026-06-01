@@ -1,0 +1,29 @@
+title: Tax Zone
+tabs:
+  main:
+    display: Main
+    sections:
+    - fields:
+      - handle: name
+        field:
+          type: text
+          display: Name
+          required: true
+      - handle: country
+        field:
+          type: json_options
+          display: Country
+          instructions: Select a country from the JSON source. Leave blank only for the Everywhere fallback zone.
+          json_file: vendor/webbycrown/webbycommerce-statamic/resources/json/countries.json
+          json_key: iso
+          json_label: name
+          searchable: true
+      - handle: region
+        field:
+          type: json_options
+          display: Region
+          instructions: Select a state or region from the JSON source. Leave blank to match the whole country.
+          json_file: vendor/webbycrown/webbycommerce-statamic/resources/json/regions.json
+          json_key: id
+          json_label: name
+          searchable: true
