@@ -266,5 +266,5 @@ php artisan optimize:clear
 
 ---
 <div align="center">
-  <strong>Made with ❤️ by <a href="https://www.webbycrown.com/statamic-addon-development-services/">Webbycrown Solutions</a></strong>
+  <strong>Made with ❤️ by <a href="https://www.webbycrown.com/statamic-addon-development-services/">WebbyCrown Solutions</a></strong>
 </div>
