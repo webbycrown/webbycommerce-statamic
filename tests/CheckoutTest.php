@@ -5,7 +5,6 @@ namespace WebbyCrown\WebbyCommerceStatamic\Tests;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Config;
-use Statamic\Facades\Entry;
 
 class CheckoutTest extends TestCase
 {
@@ -13,13 +12,10 @@ class CheckoutTest extends TestCase
     {
         parent::setUp();
 
-        // Prevent real mail delivery
         \Illuminate\Support\Facades\Mail::fake();
 
-        // Create default tax rate so Cart doesn't query database or fail
         Config::set('webbycommerce.tax.rate', 0.1);
 
-        // Pre-populate cart items directly in session
         Session::put('cart', [
             'items' => [
                 'test_key' => [
@@ -36,7 +32,6 @@ class CheckoutTest extends TestCase
             'coupon' => null,
         ]);
 
-        // Pre-populate checkout session data
         Session::put('checkout', [
             'address' => [
                 'email' => 'john@example.com',
@@ -64,29 +59,49 @@ class CheckoutTest extends TestCase
     {
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', null);
 
-        $payload = [
+        $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'card_name' => 'John Doe',
-            'card_number' => '4242 4242 4242 4242',
-            'card_expiry' => '12/28',
-            'card_cvv' => '123',
-        ];
-
-        $response = $this->postJson(route('shop.checkout.complete'), $payload);
+            'stripe_token' => 'tok_mock_token_id',
+        ]);
 
         $response->assertStatus(422);
         $response->assertJsonPath('success', false);
         $this->assertStringContainsString('Stripe is not configured', $response->json('message'));
     }
 
+    public function test_checkout_rejects_raw_card_fields(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+
+        $response = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_token' => 'tok_mock_token_id',
+            'card_number' => '4242 4242 4242 4242',
+            'card_cvv' => '123',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $this->assertStringContainsString('must not be sent to the server', $response->json('message'));
+    }
+
+    public function test_checkout_requires_stripe_token(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+
+        $response = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+        ]);
+
+        $response->assertStatus(422);
+    }
+
     public function test_checkout_complete_paypal_fails_closed(): void
     {
-        $payload = [
+        $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'paypal',
             'paypal_email' => 'buyer@example.com',
-        ];
-
-        $response = $this->postJson(route('shop.checkout.complete'), $payload);
+        ]);
 
         $response->assertStatus(422);
         $response->assertJsonPath('success', false);
@@ -98,10 +113,6 @@ class CheckoutTest extends TestCase
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
 
         Http::fake([
-            'https://api.stripe.com/v1/tokens' => Http::response([
-                'id' => 'tok_mock_token_id',
-                'object' => 'token',
-            ], 200),
             'https://api.stripe.com/v1/charges' => Http::response([
                 'id' => 'ch_mock_charge_id',
                 'object' => 'charge',
@@ -109,60 +120,19 @@ class CheckoutTest extends TestCase
             ], 200),
         ]);
 
-        $payload = [
+        $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'card_name' => 'John Doe',
-            'card_number' => '4242 4242 4242 4242',
-            'card_expiry' => '12/28',
-            'card_cvv' => '123',
-        ];
-
-        $response = $this->postJson(route('shop.checkout.complete'), $payload);
+            'stripe_token' => 'tok_mock_token_id',
+        ]);
 
         $response->assertStatus(200);
         $response->assertJsonPath('success', true);
-        
-        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
-            return $request->url() === 'https://api.stripe.com/v1/tokens' &&
-                $request['card']['number'] === '4242424242424242' &&
-                $request['card']['exp_month'] === '12' &&
-                $request['card']['exp_year'] === '2028' &&
-                $request['card']['cvc'] === '123';
-        });
 
         Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
             return $request->url() === 'https://api.stripe.com/v1/charges' &&
                 $request['source'] === 'tok_mock_token_id' &&
-                (int)$request['amount'] === 11000; // subtotal 100 + shipping 0 + tax 10 = 110 * 100 = 11000
+                (int) $request['amount'] === 11000;
         });
-    }
-
-    public function test_checkout_complete_stripe_token_failure(): void
-    {
-        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
-
-        Http::fake([
-            'https://api.stripe.com/v1/tokens' => Http::response([
-                'error' => [
-                    'message' => 'Your card number is incorrect.',
-                    'type' => 'card_error',
-                ]
-            ], 402),
-        ]);
-
-        $payload = [
-            'payment_method' => 'stripe',
-            'card_name' => 'John Doe',
-            'card_number' => '4242 4242 4242 4242',
-            'card_expiry' => '12/28',
-            'card_cvv' => '123',
-        ];
-
-        $response = $this->postJson(route('shop.checkout.complete'), $payload);
-
-        $response->assertStatus(400);
-        $response->assertJsonPath('success', false);
-        $response->assertJsonPath('message', 'Your card number is incorrect.');
     }
 
     public function test_checkout_complete_stripe_charge_failure(): void
@@ -170,10 +140,6 @@ class CheckoutTest extends TestCase
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
 
         Http::fake([
-            'https://api.stripe.com/v1/tokens' => Http::response([
-                'id' => 'tok_mock_token_id',
-                'object' => 'token',
-            ], 200),
             'https://api.stripe.com/v1/charges' => Http::response([
                 'error' => [
                     'message' => 'Your card has insufficient funds.',
@@ -182,53 +148,27 @@ class CheckoutTest extends TestCase
             ], 402),
         ]);
 
-        $payload = [
+        $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'card_name' => 'John Doe',
-            'card_number' => '4242 4242 4242 4242',
-            'card_expiry' => '12/28',
-            'card_cvv' => '123',
-        ];
-
-        $response = $this->postJson(route('shop.checkout.complete'), $payload);
+            'stripe_token' => 'tok_mock_token_id',
+        ]);
 
         $response->assertStatus(400);
         $response->assertJsonPath('success', false);
         $response->assertJsonPath('message', 'Your card has insufficient funds.');
     }
 
-    public function test_checkout_complete_stripe_accepts_four_digit_expiry_year(): void
+    public function test_checkout_complete_empty_cart_error_state(): void
     {
+        Session::put('cart', ['items' => [], 'coupon' => null]);
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
 
-        Http::fake([
-            'https://api.stripe.com/v1/tokens' => Http::response([
-                'id' => 'tok_mock_token_id',
-                'object' => 'token',
-            ], 200),
-            'https://api.stripe.com/v1/charges' => Http::response([
-                'id' => 'ch_mock_charge_id',
-                'object' => 'charge',
-                'paid' => true,
-            ], 200),
+        $response = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_token' => 'tok_mock_token_id',
         ]);
 
-        $payload = [
-            'payment_method' => 'stripe',
-            'card_name' => 'John Doe',
-            'card_number' => '4242 4242 4242 4242',
-            'card_expiry' => '12/2028',
-            'card_cvv' => '123',
-        ];
-
-        $response = $this->postJson(route('shop.checkout.complete'), $payload);
-
-        $response->assertStatus(200);
-        $response->assertJsonPath('success', true);
-        
-        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
-            return $request->url() === 'https://api.stripe.com/v1/tokens' &&
-                $request['card']['exp_year'] === '2028';
-        });
+        $response->assertStatus(400);
+        $response->assertJsonPath('success', false);
     }
 }

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.1 — 2026-09-16
+
+### Fixed
+
+- Stripe checkout requires a client `stripe_token` only; raw card fields are rejected (PCI).
+- Empty-cart and missing-token checkout paths return clear error responses.
+
 ## 1.1.0 — 2026-09-16
 
 ### Fixed

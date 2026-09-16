@@ -242,11 +242,7 @@ class CheckoutController
             ];
 
             if (in_array($request->input('payment_method'), ['credit_card', 'stripe'])) {
-                $rules['stripe_token'] = 'nullable|string|max:255';
-                $rules['card_name'] = 'required_without:stripe_token|string|max:255';
-                $rules['card_number'] = 'required_without:stripe_token|string|min:15|max:19';
-                $rules['card_expiry'] = ['required_without:stripe_token', 'nullable', 'string', 'regex:/^\d{2}\/(\d{2}|\d{4})$/'];
-                $rules['card_cvv'] = 'required_without:stripe_token|string|min:3|max:4';
+                $rules['stripe_token'] = 'required|string|max:255';
             } elseif ($request->input('payment_method') === 'paypal') {
                 $rules['paypal_email'] = 'required|email|max:255';
             } elseif ($request->input('payment_method') === 'bank_transfer') {
@@ -255,6 +251,14 @@ class CheckoutController
             }
 
             $paymentData = $request->validate($rules);
+
+            if (in_array($paymentData['payment_method'] ?? '', ['credit_card', 'stripe'], true)
+                && ($request->filled('card_number') || $request->filled('card_cvv'))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Card details must not be sent to the server. Create a Stripe.js token and send stripe_token only.',
+                ], 422);
+            }
 
             $couponData = null;
 
@@ -560,11 +564,7 @@ class CheckoutController
             }
 
             if (in_array($request->input('payment_method'), ['credit_card', 'stripe'])) {
-                $rules['stripe_token'] = 'nullable|string|max:255';
-                $rules['card_name'] = 'required_without:stripe_token|string|max:255';
-                $rules['card_number'] = 'required_without:stripe_token|string|min:15|max:19';
-                $rules['card_expiry'] = ['required_without:stripe_token', 'nullable', 'string', 'regex:/^\d{2}\/(\d{2}|\d{4})$/'];
-                $rules['card_cvv'] = 'required_without:stripe_token|string|min:3|max:4';
+                $rules['stripe_token'] = 'required|string|max:255';
             } elseif ($request->input('payment_method') === 'bank_transfer') {
                 $rules['bank_sender_name'] = 'required|string|max:255';
             } elseif ($request->input('payment_method') === 'paypal') {
@@ -572,6 +572,12 @@ class CheckoutController
             }
 
             $validated = $request->validate($rules);
+
+            if (in_array($validated['payment_method'] ?? '', ['credit_card', 'stripe'], true)
+                && ($request->filled('card_number') || $request->filled('card_cvv'))) {
+                return redirect()->back()->withInput()->with('error',
+                    'Card details must not be sent to the server. Create a Stripe.js token and send stripe_token only.');
+            }
 
             // Store address in session for tax engine
             $addressData = [
@@ -1232,40 +1238,17 @@ class CheckoutController
 
         $tokenId = $paymentData['stripe_token'] ?? null;
 
+        if (! $tokenId) {
+            return [
+                'ok' => false,
+                'is_paid' => false,
+                'payment_status' => 'pending',
+                'message' => 'A Stripe.js stripe_token is required. Card numbers must not be posted to the server.',
+                'http_status' => 422,
+            ];
+        }
+
         try {
-            if (! $tokenId) {
-                // Legacy server-side Tokens API. Prefer Stripe.js client tokens in production (PCI).
-                $tokenResponse = \Illuminate\Support\Facades\Http::asForm()
-                    ->withBasicAuth($stripeSecret, '')
-                    ->post('https://api.stripe.com/v1/tokens', [
-                        'card' => [
-                            'number' => str_replace(' ', '', $paymentData['card_number'] ?? ''),
-                            'exp_month' => explode('/', $paymentData['card_expiry'] ?? '')[0] ?? '',
-                            'exp_year' => (function ($expiry) {
-                                $year = explode('/', $expiry ?? '')[1] ?? '';
-
-                                return strlen($year) === 2 ? '20'.$year : $year;
-                            })($paymentData['card_expiry'] ?? ''),
-                            'cvc' => $paymentData['card_cvv'] ?? '',
-                            'name' => $paymentData['card_name'] ?? '',
-                        ],
-                    ]);
-
-                if ($tokenResponse->failed()) {
-                    $errorMsg = $tokenResponse->json()['error']['message'] ?? 'Stripe card tokenization failed.';
-
-                    return [
-                        'ok' => false,
-                        'is_paid' => false,
-                        'payment_status' => 'pending',
-                        'message' => $errorMsg,
-                        'http_status' => 400,
-                    ];
-                }
-
-                $tokenId = $tokenResponse->json()['id'];
-            }
-
             $chargeResponse = \Illuminate\Support\Facades\Http::asForm()
                 ->withBasicAuth($stripeSecret, '')
                 ->post('https://api.stripe.com/v1/charges', [

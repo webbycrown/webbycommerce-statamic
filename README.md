@@ -82,12 +82,34 @@ WebbyCommerce does **not** mark card or PayPal checkouts as paid unless a charge
 
 | Method | Behaviour |
 | --- | --- |
-| **Stripe** (`stripe` / `credit_card`) | Requires `STRIPE_SECRET_KEY`. Charge must succeed before `is_paid` / `payment_status: paid`. Prefer a client-created `stripe_token` (Stripe.js). Server-side card fields remain for legacy demos only and are **not PCI-compliant** for production. |
+| **Stripe** (`stripe` / `credit_card`) | Requires `STRIPE_SECRET_KEY` and a client-created **`stripe_token`** (Stripe.js / Elements). Card numbers and CVVs must never be posted to your server. Charge must succeed before `is_paid` / `payment_status: paid`. |
 | **PayPal** | Not implemented for live capture in this release. Checkout returns an error instead of faking payment. |
 | **Bank transfer** | Order is created as **pending / unpaid** for manual reconciliation. |
 | **Webhooks** | Stripe webhooks require `STRIPE_WEBHOOK_SECRET` and a valid `Stripe-Signature`. Unsigned or unverified requests are rejected. |
 
 Put secrets in `.env` only. Do not store secret keys in Globals (they are often committed with content).
+
+### Stripe.js token (required for card checkout)
+
+Collect card details only in the browser with [Stripe.js](https://stripe.com/docs/js). Send the resulting token to checkout:
+
+```js
+// after Stripe.js createToken / createPaymentMethod → token.id
+fetch('/shop/checkout/complete', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-CSRF-TOKEN': csrfToken,
+    Accept: 'application/json',
+  },
+  body: JSON.stringify({
+    payment_method: 'stripe',
+    stripe_token: token.id,
+  }),
+});
+```
+
+Requests that include `card_number` or `card_cvv` are rejected.
 
 ```dotenv
 WEBBYCOMMERCE_CURRENCY=USD
