@@ -18,15 +18,9 @@ A Statamic 5 add-on for managing products, orders, customers, coupons, taxes, sh
 
 ## Installation
 
-### From Packagist (when published)
+### From GitHub (supported)
 
-```bash
-composer require webbycrown/webbycommerce-statamic
-```
-
-### From GitHub (VCS)
-
-Until the package is listed on Packagist, add a VCS repository to your project `composer.json`:
+Add a VCS repository to your project `composer.json`, then require the tagged release:
 
 ```json
 "repositories": [
@@ -37,10 +31,18 @@ Until the package is listed on Packagist, add a VCS repository to your project `
 ]
 ```
 
-Then:
+```bash
+composer require webbycrown/webbycommerce-statamic:^1.1
+```
+
+Verified against release tag `v1.1.0`.
+
+### From Packagist
+
+When the package is listed on Packagist as `webbycrown/webbycommerce-statamic`, you can install without a VCS repository:
 
 ```bash
-composer require webbycrown/webbycommerce-statamic:^1.0
+composer require webbycrown/webbycommerce-statamic:^1.1
 ```
 
 ### Local path development
