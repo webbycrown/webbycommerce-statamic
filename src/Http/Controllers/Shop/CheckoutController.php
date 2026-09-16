@@ -242,10 +242,11 @@ class CheckoutController
             ];
 
             if (in_array($request->input('payment_method'), ['credit_card', 'stripe'])) {
-                $rules['card_name'] = 'required|string|max:255';
-                $rules['card_number'] = 'required|string|min:15|max:19';
-                $rules['card_expiry'] = ['required', 'string', 'regex:/^\d{2}\/(\d{2}|\d{4})$/'];
-                $rules['card_cvv'] = 'required|string|min:3|max:4';
+                $rules['stripe_token'] = 'nullable|string|max:255';
+                $rules['card_name'] = 'required_without:stripe_token|string|max:255';
+                $rules['card_number'] = 'required_without:stripe_token|string|min:15|max:19';
+                $rules['card_expiry'] = ['required_without:stripe_token', 'nullable', 'string', 'regex:/^\d{2}\/(\d{2}|\d{4})$/'];
+                $rules['card_cvv'] = 'required_without:stripe_token|string|min:3|max:4';
             } elseif ($request->input('payment_method') === 'paypal') {
                 $rules['paypal_email'] = 'required|email|max:255';
             } elseif ($request->input('payment_method') === 'bank_transfer') {
@@ -373,72 +374,23 @@ class CheckoutController
                 })
                 ->all();
 
-            // Process payment via Stripe API if configured and selected
-            $isPaid = in_array($paymentMethod, ['credit_card', 'paypal', 'stripe']);
-            $paymentStatus = $isPaid ? 'paid' : 'pending';
-            $stripeSecret = config('webbycommerce.payment.gateways.stripe.secret_key');
+            $paymentResult = $this->resolveCheckoutPayment(
+                $paymentMethod,
+                $paymentData,
+                $total,
+                $orderNumber,
+                $address['email']
+            );
 
-            if (in_array($paymentMethod, ['credit_card', 'stripe']) && $stripeSecret) {
-                try {
-                    // 1. Create a card token using Stripe API
-                    $tokenResponse = \Illuminate\Support\Facades\Http::asForm()
-                        ->withBasicAuth($stripeSecret, '')
-                        ->post('https://api.stripe.com/v1/tokens', [
-                            'card' => [
-                                'number' => str_replace(' ', '', $paymentData['card_number'] ?? ''),
-                                'exp_month' => explode('/', $paymentData['card_expiry'] ?? '')[0] ?? '',
-                                'exp_year' => (function($expiry) {
-                                    $year = explode('/', $expiry ?? '')[1] ?? '';
-                                    return strlen($year) === 2 ? '20' . $year : $year;
-                                })($paymentData['card_expiry'] ?? ''),
-                                'cvc' => $paymentData['card_cvv'] ?? '',
-                                'name' => $paymentData['card_name'] ?? '',
-                            ]
-                        ]);
-
-                    if ($tokenResponse->failed()) {
-                        $errorMsg = $tokenResponse->json()['error']['message'] ?? 'Stripe card tokenization failed.';
-                        return response()->json([
-                            'success' => false,
-                            'message' => $errorMsg,
-                        ], 400);
-                    }
-
-                    $tokenId = $tokenResponse->json()['id'];
-
-                    // 2. Create Charge
-                    $chargeResponse = \Illuminate\Support\Facades\Http::asForm()
-                        ->withBasicAuth($stripeSecret, '')
-                        ->post('https://api.stripe.com/v1/charges', [
-                            'amount' => round($total * 100),
-                            'currency' => strtolower(config('webbycommerce.currency', 'usd')),
-                            'source' => $tokenId,
-                            'description' => 'Order ' . $orderNumber,
-                            'receipt_email' => $address['email'],
-                        ]);
-
-                    if ($chargeResponse->failed()) {
-                        $errorMsg = $chargeResponse->json()['error']['message'] ?? 'Stripe charge failed.';
-                        return response()->json([
-                            'success' => false,
-                            'message' => $errorMsg,
-                        ], 400);
-                    }
-
-                    $isPaid = true;
-                    $paymentStatus = 'paid';
-                } catch (\Exception $stripeEx) {
-                    \Illuminate\Support\Facades\Log::error('Stripe API payment failed: ' . $stripeEx->getMessage());
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Payment processor error: ' . $stripeEx->getMessage(),
-                    ], 500);
-                }
-            } else {
-                if (in_array($paymentMethod, ['credit_card', 'stripe'])) {
-                    \Illuminate\Support\Facades\Log::warning('Stripe payment key not configured. Simulated success.');
-                }
+            if (! $paymentResult['ok']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $paymentResult['message'],
+                ], $paymentResult['http_status']);
             }
+
+            $isPaid = $paymentResult['is_paid'];
+            $paymentStatus = $paymentResult['payment_status'];
 
             try {
                 $orderEntry = $this->orderRepository->make();
@@ -608,12 +560,15 @@ class CheckoutController
             }
 
             if (in_array($request->input('payment_method'), ['credit_card', 'stripe'])) {
-                $rules['card_name'] = 'required|string|max:255';
-                $rules['card_number'] = 'required|string|min:15|max:19';
-                $rules['card_expiry'] = ['required', 'string', 'regex:/^\d{2}\/(\d{2}|\d{4})$/'];
-                $rules['card_cvv'] = 'required|string|min:3|max:4';
+                $rules['stripe_token'] = 'nullable|string|max:255';
+                $rules['card_name'] = 'required_without:stripe_token|string|max:255';
+                $rules['card_number'] = 'required_without:stripe_token|string|min:15|max:19';
+                $rules['card_expiry'] = ['required_without:stripe_token', 'nullable', 'string', 'regex:/^\d{2}\/(\d{2}|\d{4})$/'];
+                $rules['card_cvv'] = 'required_without:stripe_token|string|min:3|max:4';
             } elseif ($request->input('payment_method') === 'bank_transfer') {
                 $rules['bank_sender_name'] = 'required|string|max:255';
+            } elseif ($request->input('payment_method') === 'paypal') {
+                $rules['paypal_email'] = 'required|email|max:255';
             }
 
             $validated = $request->validate($rules);
@@ -731,55 +686,20 @@ class CheckoutController
                 })
                 ->all();
 
-            // Process payment
-            $isPaid = in_array($paymentMethod, ['credit_card', 'paypal', 'stripe']);
-            $paymentStatus = $isPaid ? 'paid' : 'pending';
-            $stripeSecret = config('webbycommerce.payment.gateways.stripe.secret_key');
+            $paymentResult = $this->resolveCheckoutPayment(
+                $paymentMethod,
+                $validated,
+                $total,
+                $orderNumber,
+                $addressData['email']
+            );
 
-            if (in_array($paymentMethod, ['credit_card', 'stripe']) && $stripeSecret) {
-                try {
-                    $tokenResponse = \Illuminate\Support\Facades\Http::asForm()
-                        ->withBasicAuth($stripeSecret, '')
-                        ->post('https://api.stripe.com/v1/tokens', [
-                            'card' => [
-                                'number' => str_replace(' ', '', $validated['card_number'] ?? ''),
-                                'exp_month' => explode('/', $validated['card_expiry'] ?? '')[0] ?? '',
-                                'exp_year' => (function($expiry) {
-                                    $year = explode('/', $expiry ?? '')[1] ?? '';
-                                    return strlen($year) === 2 ? '20' . $year : $year;
-                                })($validated['card_expiry'] ?? ''),
-                                'cvc' => $validated['card_cvv'] ?? '',
-                                'name' => $validated['card_name'] ?? '',
-                            ]
-                        ]);
-
-                    if ($tokenResponse->failed()) {
-                        $errorMsg = $tokenResponse->json()['error']['message'] ?? 'Card tokenization failed.';
-                        return redirect()->back()->withInput()->with('error', $errorMsg);
-                    }
-
-                    $chargeResponse = \Illuminate\Support\Facades\Http::asForm()
-                        ->withBasicAuth($stripeSecret, '')
-                        ->post('https://api.stripe.com/v1/charges', [
-                            'amount' => round($total * 100),
-                            'currency' => strtolower(config('webbycommerce.currency', 'usd')),
-                            'source' => $tokenResponse->json()['id'],
-                            'description' => 'Order ' . $orderNumber,
-                            'receipt_email' => $addressData['email'],
-                        ]);
-
-                    if ($chargeResponse->failed()) {
-                        $errorMsg = $chargeResponse->json()['error']['message'] ?? 'Payment failed.';
-                        return redirect()->back()->withInput()->with('error', $errorMsg);
-                    }
-
-                    $isPaid = true;
-                    $paymentStatus = 'paid';
-                } catch (\Exception $stripeEx) {
-                    Log::error('Stripe payment failed: ' . $stripeEx->getMessage());
-                    return redirect()->back()->withInput()->with('error', 'Payment processing error. Please try again.');
-                }
+            if (! $paymentResult['ok']) {
+                return redirect()->back()->withInput()->with('error', $paymentResult['message']);
             }
+
+            $isPaid = $paymentResult['is_paid'];
+            $paymentStatus = $paymentResult['payment_status'];
 
             // Create order
             $orderEntry = $this->orderRepository->make();
@@ -1192,19 +1112,39 @@ class CheckoutController
     public function paymentWebhook(Request $request): JsonResponse
     {
         $gateway = $request->input('gateway', config('webbycommerce.payment.default_gateway'));
-        $payload = $request->all();
 
-        Log::info('Payment webhook received', [
-            'gateway' => $gateway,
-            'payload' => $payload,
-        ]);
+        if ($gateway === 'stripe' || ($gateway === null && config('webbycommerce.payment.default_gateway') === 'stripe')) {
+            $secret = config('webbycommerce.payment.gateways.stripe.webhook_secret');
+            $signature = $request->header('Stripe-Signature');
+
+            if (! $secret) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Stripe webhook secret is not configured.',
+                ], 503);
+            }
+
+            if (! $signature || ! $this->verifyStripeWebhookSignature($request->getContent(), $signature, $secret)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid webhook signature.',
+                ], 401);
+            }
+
+            Log::info('Stripe payment webhook verified', [
+                'gateway' => 'stripe',
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Webhook received',
+            ]);
+        }
 
         return response()->json([
-            'success' => true,
-            'message' => 'Webhook received for ' . $gateway,
-            'gateway' => $gateway,
-            'payload' => $payload,
-        ]);
+            'success' => false,
+            'message' => 'Webhook verification is not implemented for this gateway.',
+        ], 501);
     }
 
     public function paymentCallback(Request $request)
@@ -1221,7 +1161,6 @@ class CheckoutController
             'message' => 'Payment callback received',
             'gateway' => $gateway,
             'order_number' => $orderNumber,
-            'payload' => $request->all(),
         ]);
     }
 
@@ -1238,6 +1177,172 @@ class CheckoutController
             'message' => 'Missing order number for payment redirect.',
         ], 400);
     }
+
+
+    /**
+     * Resolve payment for an order. Never marks an order paid without a verified capture.
+     *
+     * @return array{ok:bool,is_paid:bool,payment_status:string,message:?string,http_status:int}
+     */
+    protected function resolveCheckoutPayment(string $paymentMethod, array $paymentData, float $total, string $orderNumber, string $customerEmail): array
+    {
+        $pending = [
+            'ok' => true,
+            'is_paid' => false,
+            'payment_status' => 'pending',
+            'message' => null,
+            'http_status' => 200,
+        ];
+
+        if ($paymentMethod === 'bank_transfer' || $paymentMethod === 'cod') {
+            return $pending;
+        }
+
+        if ($paymentMethod === 'paypal') {
+            return [
+                'ok' => false,
+                'is_paid' => false,
+                'payment_status' => 'pending',
+                'message' => 'PayPal capture is not available in this release. Configure Stripe or use bank transfer for unpaid pending orders.',
+                'http_status' => 422,
+            ];
+        }
+
+        if (! in_array($paymentMethod, ['credit_card', 'stripe'], true)) {
+            return [
+                'ok' => false,
+                'is_paid' => false,
+                'payment_status' => 'pending',
+                'message' => 'Unsupported payment method.',
+                'http_status' => 422,
+            ];
+        }
+
+        $stripeSecret = config('webbycommerce.payment.gateways.stripe.secret_key');
+
+        if (! $stripeSecret) {
+            return [
+                'ok' => false,
+                'is_paid' => false,
+                'payment_status' => 'pending',
+                'message' => 'Stripe is not configured. Set STRIPE_SECRET_KEY in your environment. Orders are not marked paid without a verified charge.',
+                'http_status' => 422,
+            ];
+        }
+
+        $tokenId = $paymentData['stripe_token'] ?? null;
+
+        try {
+            if (! $tokenId) {
+                // Legacy server-side Tokens API. Prefer Stripe.js client tokens in production (PCI).
+                $tokenResponse = \Illuminate\Support\Facades\Http::asForm()
+                    ->withBasicAuth($stripeSecret, '')
+                    ->post('https://api.stripe.com/v1/tokens', [
+                        'card' => [
+                            'number' => str_replace(' ', '', $paymentData['card_number'] ?? ''),
+                            'exp_month' => explode('/', $paymentData['card_expiry'] ?? '')[0] ?? '',
+                            'exp_year' => (function ($expiry) {
+                                $year = explode('/', $expiry ?? '')[1] ?? '';
+
+                                return strlen($year) === 2 ? '20'.$year : $year;
+                            })($paymentData['card_expiry'] ?? ''),
+                            'cvc' => $paymentData['card_cvv'] ?? '',
+                            'name' => $paymentData['card_name'] ?? '',
+                        ],
+                    ]);
+
+                if ($tokenResponse->failed()) {
+                    $errorMsg = $tokenResponse->json()['error']['message'] ?? 'Stripe card tokenization failed.';
+
+                    return [
+                        'ok' => false,
+                        'is_paid' => false,
+                        'payment_status' => 'pending',
+                        'message' => $errorMsg,
+                        'http_status' => 400,
+                    ];
+                }
+
+                $tokenId = $tokenResponse->json()['id'];
+            }
+
+            $chargeResponse = \Illuminate\Support\Facades\Http::asForm()
+                ->withBasicAuth($stripeSecret, '')
+                ->post('https://api.stripe.com/v1/charges', [
+                    'amount' => (int) round($total * 100),
+                    'currency' => strtolower(config('webbycommerce.currency', 'usd')),
+                    'source' => $tokenId,
+                    'description' => 'Order '.$orderNumber,
+                    'receipt_email' => $customerEmail,
+                ]);
+
+            if ($chargeResponse->failed()) {
+                $errorMsg = $chargeResponse->json()['error']['message'] ?? 'Stripe charge failed.';
+
+                return [
+                    'ok' => false,
+                    'is_paid' => false,
+                    'payment_status' => 'pending',
+                    'message' => $errorMsg,
+                    'http_status' => 400,
+                ];
+            }
+
+            return [
+                'ok' => true,
+                'is_paid' => true,
+                'payment_status' => 'paid',
+                'message' => null,
+                'http_status' => 200,
+            ];
+        } catch (\Exception $stripeEx) {
+            Log::error('Stripe API payment failed: '.$stripeEx->getMessage());
+
+            return [
+                'ok' => false,
+                'is_paid' => false,
+                'payment_status' => 'pending',
+                'message' => 'Payment processor error. Please try again.',
+                'http_status' => 500,
+            ];
+        }
+    }
+
+    /**
+     * Verify Stripe webhook signatures (v1).
+     */
+    protected function verifyStripeWebhookSignature(string $payload, string $header, string $secret, int $tolerance = 300): bool
+    {
+        $parts = [];
+        foreach (explode(',', $header) as $item) {
+            [$k, $v] = array_pad(explode('=', trim($item), 2), 2, null);
+            if ($k && $v !== null) {
+                $parts[$k][] = $v;
+            }
+        }
+
+        $timestamp = $parts['t'][0] ?? null;
+        $signatures = $parts['v1'] ?? [];
+
+        if (! $timestamp || empty($signatures)) {
+            return false;
+        }
+
+        if (abs(time() - (int) $timestamp) > $tolerance) {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', $timestamp.'.'.$payload, $secret);
+
+        foreach ($signatures as $signature) {
+            if (hash_equals($expected, $signature)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
 
     protected function resolvePaymentRedirectUrl(string $orderNumber, ?string $gateway = null): string
     {

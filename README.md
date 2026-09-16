@@ -1,33 +1,49 @@
 # WebbyCommerce for Statamic
 
-A lightweight Statamic Webby Commerce addon for managing products, orders, customers, coupons, taxes, shipping, cart, wishlist, and checkout.
+A Statamic 5 add-on for managing products, orders, customers, coupons, taxes, shipping, cart, wishlist, and checkout through collections, globals, Antlers tags, and `/shop` JSON endpoints.
 
 ## Overview
 
-- Collection-based WebbyCommerce data: `products`, `orders`, `customers`, `coupons`, `tax_rates`, `shipping_rates`
-- Built-in storefront endpoints under `/shop`
-- AJAX-friendly checkout with shipping, tax, coupon, and payment gateway support
-- Configurable payment redirect/callback/webhook URLs
-- Statamic Control Panel integration with a dedicated WebbyCommerce menu
+- Collection-based store data: `products`, `orders`, `customers`, `coupons`, `tax_rates`, `tax_zones`, `tax_categories`
+- Shipping methods live in the **`webbycommerce_settings` Globals** (`shipping_locations`), not a separate collection
+- Storefront API under `/shop` for cart, checkout, coupons, wishlist, and shipping options
+- Control Panel menu for WebbyCommerce collections and settings
+- Stripe charging when `STRIPE_SECRET_KEY` is set; bank transfer creates **unpaid pending** orders
 
 ## Requirements
 
-- Statamic 5
-- PHP version supported by Statamic 5
+- Statamic 5 (`statamic/cms: ^5.0`)
+- PHP 8.1+
 - Composer
-- Node.js / npm for asset rebuilds (optional)
 
 ## Installation
 
-### Composer
+### From Packagist (when published)
 
 ```bash
 composer require webbycrown/webbycommerce-statamic
 ```
 
-### Local development
+### From GitHub (VCS)
 
-Add a path repository to your project `composer.json`:
+Until the package is listed on Packagist, add a VCS repository to your project `composer.json`:
+
+```json
+"repositories": [
+  {
+    "type": "vcs",
+    "url": "https://github.com/webbycrown/webbycommerce-statamic"
+  }
+]
+```
+
+Then:
+
+```bash
+composer require webbycrown/webbycommerce-statamic:^1.0
+```
+
+### Local path development
 
 ```json
 "repositories": [
@@ -38,19 +54,11 @@ Add a path repository to your project `composer.json`:
 ]
 ```
 
-Then install:
-
 ```bash
 composer require webbycrown/webbycommerce-statamic:@dev
 ```
 
-### Publish package assets
-
-```bash
-php artisan vendor:publish --provider="WebbyCrown\WebbyCommerceStatamic\ServiceProvider"
-```
-
-Optional tags:
+### Publish assets
 
 ```bash
 php artisan vendor:publish --tag=webbycommerce-config
@@ -59,35 +67,40 @@ php artisan vendor:publish --tag=webbycommerce-email-templates
 php artisan vendor:publish --tag=webbycommerce-blueprints
 ```
 
-Legacy `webbycommerce-*` publish tags are also supported for backwards compatibility.
-
 ### Clear caches
 
 ```bash
 php artisan optimize:clear
-php please stache:clear
+php please stache:refresh
 ```
 
-## Environment Settings
+## Payments (important)
 
-Add or update these variables in your `.env`:
+WebbyCommerce does **not** mark card or PayPal checkouts as paid unless a charge is verified.
+
+| Method | Behaviour |
+| --- | --- |
+| **Stripe** (`stripe` / `credit_card`) | Requires `STRIPE_SECRET_KEY`. Charge must succeed before `is_paid` / `payment_status: paid`. Prefer a client-created `stripe_token` (Stripe.js). Server-side card fields remain for legacy demos only and are **not PCI-compliant** for production. |
+| **PayPal** | Not implemented for live capture in this release. Checkout returns an error instead of faking payment. |
+| **Bank transfer** | Order is created as **pending / unpaid** for manual reconciliation. |
+| **Webhooks** | Stripe webhooks require `STRIPE_WEBHOOK_SECRET` and a valid `Stripe-Signature`. Unsigned or unverified requests are rejected. |
+
+Put secrets in `.env` only. Do not store secret keys in Globals (they are often committed with content).
 
 ```dotenv
 WEBBYCOMMERCE_CURRENCY=USD
 WEBBYCOMMERCE_PAYMENT_GATEWAY=stripe
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+Optional redirect / callback URL overrides:
+
+```dotenv
 WEBBYCOMMERCE_PAYMENT_REDIRECT_URL=https://example.com/shop/checkout/success/{orderNumber}
 WEBBYCOMMERCE_PAYMENT_CALLBACK_URL=https://example.com/shop/payment/callback?order={orderNumber}
 WEBBYCOMMERCE_PAYMENT_WEBHOOK_URL=https://example.com/shop/payment/webhook
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_PUBLISHABLE_KEY=pk_test_...
-```
-
-Gateway-specific overrides are also supported:
-
-```dotenv
-STRIPE_REDIRECT_URL=https://example.com/shop/checkout/success/{orderNumber}
-STRIPE_CALLBACK_URL=https://example.com/shop/payment/callback?order={orderNumber}
-STRIPE_WEBHOOK_URL=https://example.com/shop/payment/webhook
 ```
 
 ## Routes
@@ -95,7 +108,7 @@ STRIPE_WEBHOOK_URL=https://example.com/shop/payment/webhook
 Base prefix: `/shop`
 
 | Method | URI | Description |
-|---|---|---|
+| --- | --- |
 | GET | `/shop/products` | Product listing |
 | GET | `/shop/products/{slug}` | Product detail |
 | GET | `/shop/cart` | Cart page |
@@ -106,14 +119,14 @@ Base prefix: `/shop`
 | POST | `/shop/checkout/complete` | Complete checkout (AJAX) |
 | GET | `/shop/checkout/success/{orderNumber}` | Order success page |
 | GET/POST | `/shop/payment/callback` | Payment callback endpoint |
-| POST | `/shop/payment/webhook` | Payment webhook endpoint |
+| POST | `/shop/payment/webhook` | Verified Stripe webhook endpoint |
 | GET | `/shop/payment/redirect` | Payment redirect endpoint |
 | GET | `/shop/search` | Product search |
 
 API endpoints:
 
 | Method | URI | Description |
-|---|---|---|
+| --- | --- |
 | GET | `/shop/api/cart` | Get cart contents |
 | GET | `/shop/api/cart/count` | Cart count |
 | POST | `/shop/api/coupon/validate` | Validate coupon |
@@ -122,37 +135,14 @@ API endpoints:
 | GET | `/shop/api/wishlist` | Wishlist contents |
 | GET | `/shop/api/wishlist/count` | Wishlist count |
 
-## Antlers Tags
+This add-on ships CP + API + Antlers tags. Storefront page templates belong in your theme or starter kit.
 
-The addon provides the following Antlers tags under the `webbycommerce` namespace:
+## Antlers tags
 
-- `{{ webbycommerce:countries }}` - list countries with optional `only`, `exclude`, and `common` parameters.
-- `{{ webbycommerce:regions country="US" }}` - list regions for a country by ISO or name.
-- `{{ cart }}` - returns the current cart as an array.
-- `{{ cart:has }}` - returns whether the cart contains items.
-- `{{ cart:items }}` - returns cart items.
-- `{{ cart:count }}` - returns total cart item count.
-- `{{ cart:total_quantity }}` - returns total quantity of items in the cart.
-- `{{ cart:subtotal }}` - returns cart subtotal.
-- `{{ cart:total }}` - returns cart total.
-- `{{ cart:tax }}` - returns total tax.
-- `{{ cart:shipping }}` - returns shipping cost.
-- `{{ cart:shipping_breakdown }}` - returns shipping breakdown.
-- `{{ cart:discount }}` - returns discount amount.
-- `{{ cart:tax_breakdown }}` - returns tax breakdown.
-- `{{ cart:tax_rate }}` - returns the applicable tax rate.
-- `{{ cart:is_tax_included }}` - returns whether tax is included.
-- `{{ checkout:field key="email" default="" }}` - retrieves checkout field values from old input or session.
-- `{{ checkout:payment key="method" default="" }}` - retrieves checkout payment values from old input or session.
-- `{{ checkout:coupon_code }}` - returns the current coupon code.
-- `{{ checkout:coupon_discount }}` - returns the current coupon discount.
-- `{{ checkout:shipping_same_as_billing }}` - returns whether shipping is same as billing.
-- `{{ checkout:countries }}` - loads checkout country data.
-- `{{ checkout:states country="US" }}` - loads checkout states for a given country.
-- `{{ product_tag }}` - returns product collection results as `results`.
-- `{{ wishlist:count }}` - returns wishlist item count.
-- `{{ wishlist:items }}` - returns wishlist items.
-- `{{ wishlist:has product_id="..." }}` - returns whether a product is in the wishlist.
+- `{{ webbycommerce:countries }}` / `{{ webbycommerce:regions country="US" }}`
+- `{{ cart }}`, `{{ cart:items }}`, `{{ cart:count }}`, `{{ cart:subtotal }}`, `{{ cart:total }}`, `{{ cart:tax }}`, `{{ cart:shipping }}`, …
+- `{{ checkout:field key="email" }}`, `{{ checkout:payment key="method" }}`, …
+- `{{ product_tag }}`, `{{ wishlist:count }}`, `{{ wishlist:items }}`, `{{ wishlist:has product_id="..." }}`
 
 Example:
 
@@ -160,111 +150,45 @@ Example:
 {{ cart }}
   {{ total }}
   {{ items }}
-    {{ title }}
+    {{ name }} — {{ quantity }} × {{ price }}
   {{ /items }}
 {{ /cart }}
 ```
 
-## Seed Default Data
-
-Create starter entries for taxes and shipping rates:
+## Seed default tax / shipping data
 
 ```bash
 php artisan webbycommerce:seed-defaults
-```
-
-Use `--force` to skip confirmation:
-
-```bash
 php artisan webbycommerce:seed-defaults --force
 ```
 
+Shipping defaults are written into Globals `shipping_locations`.
+
 ## Configuration
 
-The main configuration file is `config/webbycommerce.php`.
+Published file: `config/webbycommerce.php` (also merged from the package on boot).
 
-Key configuration areas:
+Globals set: `webbycommerce_settings` (store name/email, shipping locations, publishable keys, email toggles).
 
-- `currency`
-- `shipping`
-- `products`
-- `orders`
-- `customers`
-- `coupons`
-- `cart`
-- `payment`
+See `THIRD_PARTY.md` for bundled third-party materials.
 
-## Store Settings
+## Support
 
-The addon also supports store-level globals in `content/globals/webbycommerce_settings.yaml`:
+- GitHub Issues: https://github.com/webbycrown/webbycommerce-statamic/issues
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
 
-```yaml
-store_name: My Store
-store_email: admin@example.com
-```
+Community support via GitHub Issues unless you have a separate WebbyCrown support agreement.
 
-- `store_name` is mapped to `config('webbycommerce.store.name')` and is used in email templates.
-- `store_email` is mapped to `config('webbycommerce.store.email')` and is used as the fallback contact address in email notifications.
-
-## Order Confirmation Email Setup
-
-Order confirmation emails are controlled by both the global settings and the package config.
-
-### Global settings
-
-Update `content/globals/webbycommerce_settings.yaml` or the Statamic Control Panel global set:
-
-```yaml
-email_order_confirmation_enabled: true
-email_order_confirmation_to_customer: true
-email_order_confirmation_to_admin: true
-email_order_confirmation_admin_email: admin@example.com
-```
-
-> If `email_order_confirmation_admin_email` is blank, the addon falls back to `store_email`.
-
-### Package config
-
-The addon maps the globals into `config/webbycommerce.php` under:
-
-```php
-'emails' => [
-    'order_confirmation' => [
-        'enabled' => true,
-        'to_customer' => true,
-        'to_admin' => false,
-        'admin_email' => env('WEBBYCOMMERCE_ADMIN_EMAIL'),
-    ],
-    'order_shipped' => [
-        'enabled' => true,
-    ],
-],
-```
-
-- `enabled` turns confirmation emails on or off.
-- `to_customer` sends the email to the customer.
-- `to_admin` sends the email to the admin email address.
-- `admin_email` is the admin recipient address.
-
-After changing settings, run:
-
-```bash
-php artisan optimize:clear
-```
-
-## Important Files
+## Important files
 
 | File | Purpose |
-|---|---|
-| `src/ServiceProvider.php` | Register routes, collections, permissions, and commands |
-| `routes/shop.php` | Storefront route definitions |
+| --- | --- |
+| `src/ServiceProvider.php` | Routes, collections, permissions, config merge |
+| `routes/shop.php` | Storefront routes |
 | `config/webbycommerce.php` | Package configuration |
-| `resources/blueprints/collections` | Statamic blueprints |
-| `src/Cart/Cart.php` | Cart service |
-| `src/Wishlist/Wishlist.php` | Wishlist service |
+| `resources/blueprints/` | Collection and globals blueprints |
 | `src/Http/Controllers/Shop/CheckoutController.php` | Checkout and payment logic |
 
 ---
-<div align="center">
-  <strong>Made with ❤️ by <a href="https://www.webbycrown.com/statamic-addon-development-services/">WebbyCrown Solutions</a></strong>
-</div>
+
+Made by [WebbyCrown Solutions](https://www.webbycrown.com/)

@@ -60,7 +60,7 @@ class CheckoutTest extends TestCase
         ]);
     }
 
-    public function test_checkout_complete_stripe_simulated_success_when_no_secret(): void
+    public function test_checkout_complete_stripe_fails_closed_when_no_secret(): void
     {
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', null);
 
@@ -74,9 +74,23 @@ class CheckoutTest extends TestCase
 
         $response = $this->postJson(route('shop.checkout.complete'), $payload);
 
-        $response->assertStatus(200);
-        $response->assertJsonPath('success', true);
-        $this->assertNotEmpty($response->json('order.order_number'));
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $this->assertStringContainsString('Stripe is not configured', $response->json('message'));
+    }
+
+    public function test_checkout_complete_paypal_fails_closed(): void
+    {
+        $payload = [
+            'payment_method' => 'paypal',
+            'paypal_email' => 'buyer@example.com',
+        ];
+
+        $response = $this->postJson(route('shop.checkout.complete'), $payload);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $this->assertStringContainsString('PayPal capture is not available', $response->json('message'));
     }
 
     public function test_checkout_complete_stripe_api_success(): void

@@ -34,6 +34,8 @@ class ServiceProvider extends AddonServiceProvider
     {
         parent::register();
 
+        $this->mergeConfigFrom(__DIR__.'/../config/webbycommerce.php', 'webbycommerce');
+
         $this->app->singleton(EntryProductRepository::class);
         $this->app->singleton(EntryOrderRepository::class);
         $this->app->singleton(EntryCustomerRepository::class);
@@ -77,8 +79,6 @@ class ServiceProvider extends AddonServiceProvider
     public function bootAddon()
     {
         parent::bootAddon();
-        $this->loadTranslationsFrom(__DIR__.'/../lang', 'webbycommerce');
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
         if ($this->app->runningInConsole()) {
             $this->commands([
@@ -422,10 +422,10 @@ class ServiceProvider extends AddonServiceProvider
 
             $defaultGateway = $variables->get('payment_gateway');
             $stripePublishableKey = $variables->get('stripe_publishable_key');
-            $stripeSecretKey = $variables->get('stripe_secret_key');
-            $stripeWebhookSecret = $variables->get('stripe_webhook_secret');
             $paypalClientId = $variables->get('paypal_client_id');
-            $paypalSecret = $variables->get('paypal_secret');
+
+            // Secrets (Stripe secret, webhook secret, PayPal secret) must come from
+            // environment / config — never from Globals committed to content/.
 
             if ($defaultGateway) {
                 config(['webbycommerce.payment.default_gateway' => $defaultGateway]);
@@ -435,20 +435,8 @@ class ServiceProvider extends AddonServiceProvider
                 config(['webbycommerce.payment.gateways.stripe.publishable_key' => $stripePublishableKey]);
             }
 
-            if ($stripeSecretKey) {
-                config(['webbycommerce.payment.gateways.stripe.secret_key' => $stripeSecretKey]);
-            }
-
-            if ($stripeWebhookSecret) {
-                config(['webbycommerce.payment.gateways.stripe.webhook_secret' => $stripeWebhookSecret]);
-            }
-
             if ($paypalClientId) {
                 config(['webbycommerce.payment.gateways.paypal.client_id' => $paypalClientId]);
-            }
-
-            if ($paypalSecret) {
-                config(['webbycommerce.payment.gateways.paypal.secret' => $paypalSecret]);
             }
 
             $storeName = $variables->get('store_name');

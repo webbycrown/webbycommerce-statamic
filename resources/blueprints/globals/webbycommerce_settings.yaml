@@ -129,7 +129,7 @@ tabs:
               required: true
       -
         display: 'Stripe Settings'
-        instructions: 'Stripe API credentials. Keep these secret.'
+        instructions: 'Publishable key only. Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in .env — never store secrets in Globals.'
         fields:
           -
             handle: stripe_publishable_key
@@ -137,37 +137,16 @@ tabs:
               type: text
               display: 'Publishable Key'
               instructions: 'Your Stripe publishable (public) key.'
-          -
-            handle: stripe_secret_key
-            field:
-              type: text
-              display: 'Secret Key'
-              instructions: 'Your Stripe secret key. Never share this.'
-              input_type: password
-          -
-            handle: stripe_webhook_secret
-            field:
-              type: text
-              display: 'Webhook Secret'
-              instructions: 'Stripe webhook signing secret.'
-              input_type: password
       -
         display: 'PayPal Settings'
-        instructions: 'PayPal API credentials.'
+        instructions: 'Client ID only. Set PAYPAL_SECRET in .env. Live PayPal capture is not shipped in this release.'
         fields:
           -
             handle: paypal_client_id
             field:
               type: text
               display: 'Client ID'
-              instructions: 'Your PayPal client ID.'
-          -
-            handle: paypal_secret
-            field:
-              type: text
-              display: Secret
-              instructions: 'Your PayPal secret.'
-              input_type: password
+              instructions: 'Your PayPal client ID (public).'
 
   orders:
     display: Orders

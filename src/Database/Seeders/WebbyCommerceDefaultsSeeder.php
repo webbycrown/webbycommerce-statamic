@@ -17,8 +17,6 @@ class WebbyCommerceDefaultsSeeder extends Seeder
         \Statamic\Facades\Blink::flush();
         \Statamic\Facades\Stache::refresh();
 
-        dump('Blueprints available for tax_categories before save: ' . json_encode(\Statamic\Facades\Blueprint::in('collections/tax_categories')->keys()->all()));
-
         $this->createDefaultTaxCategories();
         $this->createDefaultTaxZones();
         $this->createDefaultTaxRates();
