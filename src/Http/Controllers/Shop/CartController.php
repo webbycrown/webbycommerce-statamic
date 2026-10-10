@@ -79,10 +79,10 @@ class CartController
             if ($request->expectsJson() || $request->ajax() || $request->wantsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Item not found in cart.',
-                ], 404);
+                    'message' => 'Cart could not be updated. The quantity may exceed available stock.',
+                ], 422);
             }
-            return redirect()->back()->with('error', 'Item not found in cart.');
+            return redirect()->back()->with('error', 'Cart could not be updated. The quantity may exceed available stock.');
         }
  
         if ($request->expectsJson() || $request->ajax() || $request->wantsJson()) {

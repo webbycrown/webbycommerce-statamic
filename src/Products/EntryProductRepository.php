@@ -88,7 +88,9 @@ class EntryProductRepository
             ->where('collection', $this->collection)
             ->where('status', 'active')
             ->where(function ($query) {
-                $query->where('track_inventory', false)
+                $query->where('track_stock', false)
+                    ->orWhere('track_inventory', false)
+                    ->orWhere('stock', '>', 0)
                     ->orWhere('quantity', '>', 0);
             })
             ->get()

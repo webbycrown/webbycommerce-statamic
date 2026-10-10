@@ -76,12 +76,91 @@ class Product
 
     public function quantity()
     {
-        return (int) $this->entry->value('quantity', 0);
+        foreach (['stock', 'quantity'] as $handle) {
+            $value = $this->entry->value($handle);
+            if ($value !== null && $value !== '') {
+                return (int) $value;
+            }
+        }
+
+        return 0;
     }
 
     public function trackInventory()
     {
-        return (bool) $this->entry->value('track_inventory', false);
+        foreach (['track_stock', 'track_inventory'] as $handle) {
+            $value = $this->entry->value($handle);
+            if ($value !== null && $value !== '') {
+                return filter_var($value, FILTER_VALIDATE_BOOLEAN);
+            }
+        }
+
+        // Blueprint default for Track Stock is on.
+        return true;
+    }
+
+    /**
+     * Units that can still be sold. Null means inventory is not tracked.
+     */
+    public function availableQuantity(array $options = []): ?int
+    {
+        if (! $this->trackInventory()) {
+            return null;
+        }
+
+        if ($this->hasVariants() && array_key_exists('variant_index', $options)) {
+            $variant = $this->findVariant((int) $options['variant_index']);
+            if ($variant === null) {
+                return 0;
+            }
+
+            if ($variant['stock'] !== null) {
+                return (int) $variant['stock'];
+            }
+        }
+
+        return $this->quantity();
+    }
+
+    /**
+     * Change on-hand stock. Negative delta reserves or sells; positive restores.
+     * Writes both stock and quantity so Control Panel and older reads stay aligned.
+     */
+    public function adjustStock(int $delta, ?int $variantIndex = null): bool
+    {
+        if (! $this->trackInventory() || $delta === 0) {
+            return true;
+        }
+
+        $entry = $this->entry();
+
+        if ($variantIndex !== null && $this->hasVariants()) {
+            $variants = collect($entry->value('variants') ?? [])->values()->all();
+            if (! isset($variants[$variantIndex]) || ! is_array($variants[$variantIndex])) {
+                return false;
+            }
+
+            $current = (int) ($variants[$variantIndex]['stock'] ?? 0);
+            $next = $current + $delta;
+            if ($next < 0) {
+                return false;
+            }
+
+            $variants[$variantIndex]['stock'] = $next;
+            $entry->set('variants', $variants);
+
+            return (bool) $entry->save();
+        }
+
+        $next = $this->quantity() + $delta;
+        if ($next < 0) {
+            return false;
+        }
+
+        $entry->set('stock', $next);
+        $entry->set('quantity', $next);
+
+        return (bool) $entry->save();
     }
 
     public function isOutOfStock()
@@ -290,7 +369,9 @@ class Product
             'description' => $this->description(),
             'short_description' => $this->shortDescription(),
             'quantity' => $this->quantity(),
+            'stock' => $this->quantity(),
             'track_inventory' => $this->trackInventory(),
+            'track_stock' => $this->trackInventory(),
             'is_out_of_stock' => $this->isOutOfStock(),
             'is_low_stock' => $this->isLowStock(),
             'featured' => $this->featured(),

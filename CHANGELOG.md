@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.2 — 2026-10-11
+
+### Fixed
+
+- Checkout totals, saved orders, and the Stripe charge no longer add tax that is already included in the product price.
+- Product stock uses the Control Panel `stock` and `track_stock` fields. Cart and both checkout routes reject unavailable quantities and deduct stock when an order is accepted.
+
 ## 1.1.1 — 2026-09-16
 
 ### Fixed

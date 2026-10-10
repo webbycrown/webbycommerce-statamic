@@ -168,8 +168,17 @@ class Cart
 
     public function total(): float
     {
-        $tax = $this->isTaxIncluded() ? 0 : $this->tax();
-        return $this->subtotal() + $tax + $this->shipping() - $this->discount();
+        return $this->chargeableTotal($this->subtotal(), $this->shipping(), $this->tax(), $this->discount());
+    }
+
+    /**
+     * Amount the customer pays. Included tax is already in the subtotal, so it is not added again.
+     */
+    public function chargeableTotal(float $subtotal, float $shipping, float $tax, float $discount): float
+    {
+        $taxToAdd = $this->isTaxIncluded() ? 0.0 : $tax;
+
+        return round($subtotal + $shipping + $taxToAdd - $discount, 2);
     }
 
     public function coupon(): ?array
@@ -190,12 +199,20 @@ class Cart
             return false;
         }
 
-        if ($product->isOutOfStock()) {
+        if ($product->isOutOfStock() && ! ($product->hasVariants() && isset($options['variant_index']))) {
             \Illuminate\Support\Facades\Log::warning("Cart::add - Product out of stock: {$productId}");
             return false;
         }
 
-        // Resolve variant-specific values when applicable
+        $cart = $this->get();
+        $itemKey = $this->getItemKey($productId, $options);
+        $requested = $quantity + (int) ($cart['items'][$itemKey]['quantity'] ?? 0);
+        $available = $product->availableQuantity($options);
+
+        if ($available !== null && $requested > $available) {
+            \Illuminate\Support\Facades\Log::warning("Cart::add - Quantity exceeds stock: {$productId}");
+            return false;
+        }
         $itemName  = $product->title();
         $itemSku   = $product->sku();
         $itemPrice = (float) $product->finalPrice();
@@ -256,6 +273,15 @@ class Cart
         if ($quantity <= 0) {
             unset($cart['items'][$itemKey]);
         } else {
+            $item = $cart['items'][$itemKey];
+            $product = $this->productRepository->find($item['product_id'] ?? '');
+            if ($product) {
+                $available = $product->availableQuantity($item['options'] ?? []);
+                if ($available !== null && $quantity > $available) {
+                    return false;
+                }
+            }
+
             $cart['items'][$itemKey]['quantity'] = $quantity;
         }
 
@@ -279,6 +305,117 @@ class Cart
     public function clear(): void
     {
         Session::forget($this->sessionKey());
+    }
+
+    public function stockError(): ?string
+    {
+        $needed = [];
+
+        foreach ($this->get()['items'] ?? [] as $item) {
+            $productId = (string) ($item['product_id'] ?? '');
+            $variant = $item['options']['variant_index'] ?? 'base';
+            $bucket = $productId.'|'.$variant;
+            $needed[$bucket]['qty'] = ($needed[$bucket]['qty'] ?? 0) + (int) ($item['quantity'] ?? 0);
+            $needed[$bucket]['item'] = $item;
+        }
+
+        foreach ($needed as $row) {
+            $item = $row['item'];
+            $product = $this->productRepository->find($item['product_id'] ?? '');
+            if (! $product) {
+                return 'A product in your cart is no longer available.';
+            }
+
+            $available = $product->availableQuantity($item['options'] ?? []);
+            if ($available !== null && $row['qty'] > $available) {
+                $label = $item['name'] ?? $product->title();
+                if ($available <= 0) {
+                    return $label.' is out of stock.';
+                }
+
+                return $label.' only has '.$available.' available.';
+            }
+        }
+
+        return null;
+    }
+
+    public function reserveStock(): bool
+    {
+        return $this->withStockLock(function () {
+            if ($this->stockError() !== null) {
+                return false;
+            }
+
+            return $this->applyStockDelta(-1);
+        });
+    }
+
+    public function releaseStock(): bool
+    {
+        return $this->withStockLock(function () {
+            return $this->applyStockDelta(1);
+        });
+    }
+
+    protected function withStockLock(callable $callback): bool
+    {
+        $lock = null;
+
+        try {
+            $lock = \Illuminate\Support\Facades\Cache::lock('webbycommerce-stock', 15);
+            $lock->block(5);
+        } catch (\Throwable $e) {
+            $lock = null;
+        }
+
+        try {
+            return (bool) $callback();
+        } finally {
+            if ($lock) {
+                try {
+                    $lock->release();
+                } catch (\Throwable $e) {
+                    //
+                }
+            }
+        }
+    }
+
+    protected function applyStockDelta(int $direction): bool
+    {
+        $applied = [];
+
+        foreach ($this->get()['items'] ?? [] as $item) {
+            $product = $this->productRepository->find($item['product_id'] ?? '');
+            if (! $product) {
+                $this->rollbackStockDelta($applied, $direction);
+
+                return false;
+            }
+
+            $variantIndex = isset($item['options']['variant_index'])
+                ? (int) $item['options']['variant_index']
+                : null;
+            $delta = $direction * (int) ($item['quantity'] ?? 0);
+
+            if (! $product->adjustStock($delta, $variantIndex)) {
+                $this->rollbackStockDelta($applied, $direction);
+
+                return false;
+            }
+
+            $applied[] = [$product, $delta, $variantIndex];
+        }
+
+        return true;
+    }
+
+    protected function rollbackStockDelta(array $applied, int $direction): void
+    {
+        foreach (array_reverse($applied) as [$product, $delta, $variantIndex]) {
+            $product->adjustStock(-$delta, $variantIndex);
+        }
     }
 
     public function applyCoupon(string $code): array

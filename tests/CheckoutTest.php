@@ -53,6 +53,21 @@ class CheckoutTest extends TestCase
                 'shipping_cost' => 10.00,
             ],
         ]);
+
+        \Statamic\Facades\Entry::make()
+            ->collection('products')
+            ->id('test-product-id')
+            ->slug('test-product')
+            ->published(true)
+            ->data([
+                'title' => 'Test Product',
+                'price' => 50,
+                'sku' => 'TEST-SKU',
+                'status' => 'active',
+                'track_stock' => false,
+                'stock' => 100,
+            ])
+            ->save();
     }
 
     public function test_checkout_complete_stripe_fails_closed_when_no_secret(): void

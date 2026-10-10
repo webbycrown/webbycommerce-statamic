@@ -30,6 +30,35 @@ class CheckoutController
 
     protected ShippingManager $shippingManager;
 
+    protected bool $stockHeld = false;
+
+    protected function rejectIfStockUnavailable(bool $json)
+    {
+        $message = $this->cart->stockError();
+        if ($message === null) {
+            return null;
+        }
+
+        if ($json) {
+            return response()->json([
+                'success' => false,
+                'message' => $message,
+            ], 422);
+        }
+
+        return redirect()->back()->withInput()->with('error', $message);
+    }
+
+    protected function releaseHeldStock(): void
+    {
+        if (! $this->stockHeld) {
+            return;
+        }
+
+        $this->cart->releaseStock();
+        $this->stockHeld = false;
+    }
+
     public function __construct(
         Cart $cart,
         EntryCustomerRepository $customerRepository,
@@ -343,7 +372,21 @@ class CheckoutController
             $lineItemsBreakdown = $taxBreakdown['line_items'] ?? [];
 
             $taxAmount = round($taxBreakdown['total'] ?? 0, 2);
-            $total = round($subtotal + $shippingAmount + $taxAmount - $discountAmount, 2);
+            $total = $this->cart->chargeableTotal($subtotal, $shippingAmount, $taxAmount, $discountAmount);
+
+            $stockResponse = $this->rejectIfStockUnavailable(true);
+            if ($stockResponse) {
+                return $stockResponse;
+            }
+
+            if (! $this->cart->reserveStock()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Not enough stock to complete this order.',
+                ], 422);
+            }
+
+            $this->stockHeld = true;
 
             $orderNumber = $this->orderRepository->generateOrderNumber();
 
@@ -387,11 +430,15 @@ class CheckoutController
             );
 
             if (! $paymentResult['ok']) {
+                $this->releaseHeldStock();
+
                 return response()->json([
                     'success' => false,
                     'message' => $paymentResult['message'],
                 ], $paymentResult['http_status']);
             }
+
+            $this->stockHeld = false;
 
             $isPaid = $paymentResult['is_paid'];
             $paymentStatus = $paymentResult['payment_status'];
@@ -511,6 +558,7 @@ class CheckoutController
                 'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
+            $this->releaseHeldStock();
             Log::error('Checkout complete error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
                 'file' => $e->getFile(),
@@ -631,7 +679,18 @@ class CheckoutController
 
             Session::put('checkout.coupon', $couponData);
 
-            $total = round($subtotal + $shippingAmount + $taxAmount - $discountAmount, 2);
+            $total = $this->cart->chargeableTotal($subtotal, $shippingAmount, $taxAmount, $discountAmount);
+
+            $stockResponse = $this->rejectIfStockUnavailable(false);
+            if ($stockResponse) {
+                return $stockResponse;
+            }
+
+            if (! $this->cart->reserveStock()) {
+                return redirect()->back()->withInput()->with('error', 'Not enough stock to complete this order.');
+            }
+
+            $this->stockHeld = true;
 
             // Customer
             $customer = $this->customerRepository->findByEmail($addressData['email']);
@@ -701,8 +760,12 @@ class CheckoutController
             );
 
             if (! $paymentResult['ok']) {
+                $this->releaseHeldStock();
+
                 return redirect()->back()->withInput()->with('error', $paymentResult['message']);
             }
+
+            $this->stockHeld = false;
 
             $isPaid = $paymentResult['is_paid'];
             $paymentStatus = $paymentResult['payment_status'];
@@ -802,6 +865,7 @@ class CheckoutController
         } catch (ValidationException $e) {
             return redirect()->back()->withInput()->withErrors($e->errors())->with('error', 'Please correct the errors below.');
         } catch (\Exception $e) {
+            $this->releaseHeldStock();
             Log::error('Checkout process error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -1101,7 +1165,7 @@ class CheckoutController
         $taxAmount = $taxBreakdown['total'] ?? 0;
         $taxRate = $this->cart->taxRate();
 
-        $total = $subtotal + $shippingAmount + $taxAmount - $discountAmount;
+        $total = $this->cart->chargeableTotal($subtotal, $shippingAmount, $taxAmount, $discountAmount);
 
         return [
             'subtotal' => $subtotal,
