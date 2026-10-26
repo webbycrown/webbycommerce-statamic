@@ -21,7 +21,8 @@ class EmailTest extends TestCase
     {
         Config::set('webbycommerce.emails.order_confirmation.enabled', true);
         Config::set('webbycommerce.emails.order_confirmation.to_customer', true);
-        Config::set('webbycommerce.emails.order_confirmation.to_admin', 'admin@example.com');
+        Config::set('webbycommerce.emails.order_confirmation.to_admin', true);
+        Config::set('webbycommerce.emails.order_confirmation.admin_email', 'admin@example.com');
 
         $orderData = ['order_number' => 'ORD-123', 'total' => 100.00];
         $customerEmail = 'customer@example.com';
@@ -31,11 +32,11 @@ class EmailTest extends TestCase
         $this->assertTrue($result);
 
         Mail::assertSent(OrderConfirmation::class, function ($mail) use ($customerEmail) {
-            return $mail->hasTo($customerEmail) && $mail->data['order_number'] === 'ORD-123';
+            return $mail->hasTo($customerEmail) && $mail->order['order_number'] === 'ORD-123';
         });
 
         Mail::assertSent(OrderConfirmation::class, function ($mail) {
-            return $mail->hasTo('admin@example.com') && $mail->data['order_number'] === 'ORD-123';
+            return $mail->hasTo('admin@example.com') && $mail->order['order_number'] === 'ORD-123';
         });
     }
 
@@ -64,7 +65,7 @@ class EmailTest extends TestCase
         $this->assertTrue($result);
 
         Mail::assertSent(OrderShipped::class, function ($mail) use ($customerEmail) {
-            return $mail->hasTo($customerEmail) && $mail->data['status'] === 'shipped';
+            return $mail->hasTo($customerEmail) && $mail->order['status'] === 'shipped';
         });
     }
 
@@ -78,7 +79,7 @@ class EmailTest extends TestCase
         $this->assertTrue($result);
 
         Mail::assertSent(OrderCancelled::class, function ($mail) use ($customerEmail) {
-            return $mail->hasTo($customerEmail) && $mail->data['status'] === 'cancelled';
+            return $mail->hasTo($customerEmail) && $mail->order['status'] === 'cancelled';
         });
     }
 }

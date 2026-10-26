@@ -18,12 +18,17 @@
         "statamic/cms": "^5.0"
     },
     "require-dev": {
-        "orchestra/testbench": "^8.0",
-        "phpunit/phpunit": "^10.0"
+        "orchestra/testbench": "^9.0 || ^10.0",
+        "phpunit/phpunit": "^10.5 || ^11.0"
     },
     "autoload": {
         "psr-4": {
             "WebbyCrown\\WebbyCommerceStatamic\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "WebbyCrown\\WebbyCommerceStatamic\\Tests\\": "tests/"
         }
     },
     "extra": {

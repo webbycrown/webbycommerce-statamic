@@ -1,6 +1,6 @@
 ---
 id: b22e8d8b-e0e4-4f9c-9ce2-f716ce779dfd
-blueprint: order
+blueprint: orders
 title: ORD-2026-3EMYGXCQ
 order_number: ORD-2026-3EMYGXCQ
 reference: ORD-2026-3EMYGXCQ

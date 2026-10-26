@@ -18,32 +18,13 @@ A Statamic 5 add-on for managing products, orders, customers, coupons, taxes, sh
 
 ## Installation
 
-### From GitHub (supported)
-
-Add a VCS repository to your project `composer.json`, then require the tagged release:
-
-```json
-"repositories": [
-  {
-    "type": "vcs",
-    "url": "https://github.com/webbycrown/webbycommerce-statamic"
-  }
-]
-```
+Marketplace and Composer installs use Packagist. No VCS repository entry is required.
 
 ```bash
-composer require webbycrown/webbycommerce-statamic:^1.1
+composer require webbycrown/webbycommerce-statamic
 ```
 
-Verified against release tag `v1.1.0`.
-
-### From Packagist
-
-When the package is listed on Packagist as `webbycrown/webbycommerce-statamic`, you can install without a VCS repository:
-
-```bash
-composer require webbycrown/webbycommerce-statamic:^1.1
-```
+That constraint resolves `webbycrown/webbycommerce-statamic` `^1.1`, including `v1.1.3` and later. The package requires Statamic 5.
 
 ### Local path development
 
@@ -82,10 +63,10 @@ WebbyCommerce does **not** mark card or PayPal checkouts as paid unless a charge
 
 | Method | Behaviour |
 | --- | --- |
-| **Stripe** (`stripe` / `credit_card`) | Requires `STRIPE_SECRET_KEY` and a client-created **`stripe_token`** (Stripe.js / Elements). Card numbers and CVVs must never be posted to your server. Charge must succeed before `is_paid` / `payment_status: paid`. |
+| **Stripe** (`stripe` / `credit_card`) | Requires `STRIPE_SECRET_KEY` and a client-created **`stripe_token`** (Stripe.js / Elements). Card numbers and CVVs must never be posted to your server. Charge must succeed before `is_paid` / `payment_status: paid`. This Charges API flow does not support 3D Secure, so cards that require Strong Customer Authentication (common in Europe) can be declined. |
 | **PayPal** | Not implemented for live capture in this release. Checkout returns an error instead of faking payment. |
 | **Bank transfer** | Order is created as **pending / unpaid** for manual reconciliation. |
-| **Webhooks** | Stripe webhooks require `STRIPE_WEBHOOK_SECRET` and a valid `Stripe-Signature`. Unsigned or unverified requests are rejected. |
+| **Webhooks** | `/shop/payment/webhook` is a placeholder. When `STRIPE_WEBHOOK_SECRET` is set it checks `Stripe-Signature` and returns. It does not update the order. The route uses the `web` middleware, so Stripe's POST is rejected by CSRF protection unless that route is excluded. |
 
 Put secrets in `.env` only. Do not store secret keys in Globals (they are often committed with content).
 
@@ -143,7 +124,7 @@ Base prefix: `/shop`
 | POST | `/shop/checkout/complete` | Complete checkout (AJAX) |
 | GET | `/shop/checkout/success/{orderNumber}` | Order success page |
 | GET/POST | `/shop/payment/callback` | Payment callback endpoint |
-| POST | `/shop/payment/webhook` | Verified Stripe webhook endpoint |
+| POST | `/shop/payment/webhook` | Placeholder. Verifies a Stripe signature, then does not update the order. CSRF on the `web` middleware rejects Stripe unless the route is excluded. |
 | GET | `/shop/payment/redirect` | Payment redirect endpoint |
 | GET | `/shop/search` | Product search |
 

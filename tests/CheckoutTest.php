@@ -146,7 +146,7 @@ class CheckoutTest extends TestCase
         Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
             return $request->url() === 'https://api.stripe.com/v1/charges' &&
                 $request['source'] === 'tok_mock_token_id' &&
-                (int) $request['amount'] === 11000;
+                (int) $request['amount'] === 10000;
         });
     }
 
@@ -171,6 +171,100 @@ class CheckoutTest extends TestCase
         $response->assertStatus(400);
         $response->assertJsonPath('success', false);
         $response->assertJsonPath('message', 'Your card has insufficient funds.');
+    }
+
+    public function test_process_checkout_rechecks_coupon_after_items_are_removed(): void
+    {
+        \Statamic\Facades\Entry::make()
+            ->collection('coupons')
+            ->slug('save50')
+            ->published(true)
+            ->data([
+                'title' => 'SAVE50',
+                'code' => 'SAVE50',
+                'type' => 'fixed',
+                'value' => 50,
+                'minimum_amount' => 80,
+            ])
+            ->save();
+
+        Session::put('checkout.coupon', [
+            'code' => 'SAVE50',
+            'discount' => 50,
+        ]);
+
+        $cart = Session::get('cart');
+        $cart['items']['test_key']['quantity'] = 1;
+        Session::put('cart', $cart);
+
+        $ordersBefore = \Statamic\Facades\Entry::query()->where('collection', 'orders')->count();
+
+        $response = $this->post(route('shop.checkout.process'), $this->bankTransferCheckout());
+
+        $response->assertRedirect();
+        $response->assertSessionHas('error');
+        $this->assertStringContainsString('Minimum order amount', session('error'));
+        $this->assertNull(Session::get('checkout.coupon'));
+        $this->assertSame($ordersBefore, \Statamic\Facades\Entry::query()->where('collection', 'orders')->count());
+    }
+
+    public function test_process_checkout_recalculates_a_smaller_cart_discount(): void
+    {
+        \Statamic\Facades\Entry::make()
+            ->collection('coupons')
+            ->slug('take20')
+            ->published(true)
+            ->data([
+                'title' => 'TAKE20',
+                'code' => 'TAKE20',
+                'type' => 'percentage',
+                'value' => 20,
+                'minimum_amount' => 0,
+            ])
+            ->save();
+
+        Session::put('checkout.coupon', [
+            'code' => 'TAKE20',
+            'discount' => 20,
+        ]);
+
+        $cart = Session::get('cart');
+        $cart['items']['test_key']['quantity'] = 1;
+        Session::put('cart', $cart);
+
+        $response = $this->post(route('shop.checkout.process'), $this->bankTransferCheckout());
+
+        $response->assertRedirect();
+        $response->assertSessionMissing('error');
+
+        $order = \Statamic\Facades\Entry::query()
+            ->where('collection', 'orders')
+            ->get()
+            ->first(fn ($entry) => $entry->get('coupon') === 'TAKE20');
+        $this->assertNotNull($order);
+        $this->assertEquals(10.0, (float) $order->get('discount'));
+        $this->assertEquals(10.0, (float) $order->get('coupon_total'));
+    }
+
+    private function bankTransferCheckout(): array
+    {
+        return [
+            'email' => 'john@example.com',
+            'first_name' => 'John',
+            'last_name' => 'Doe',
+            'phone' => '1234567890',
+            'shipping_same_as_billing' => '1',
+            'payment_method' => 'bank_transfer',
+            'bank_sender_name' => 'John Doe',
+            'shipping_method' => 'standard',
+            'billing_address' => [
+                'street' => '123 Main St',
+                'city' => 'New York',
+                'state' => 'NY',
+                'postal_code' => '10001',
+                'country' => 'USA',
+            ],
+        ];
     }
 
     public function test_checkout_complete_empty_cart_error_state(): void

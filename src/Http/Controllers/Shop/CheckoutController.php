@@ -659,22 +659,27 @@ class CheckoutController
 
             $subtotal = round($this->cart->subtotal(), 2);
 
-            // Coupon
+            // Re-check any coupon against the cart as it is now. A discount stored
+            // when the coupon was applied must not survive a smaller cart.
+            $couponCode = $validated['coupon_code'] ?? null;
+            if ($couponCode === null || $couponCode === '') {
+                $couponCode = Session::get('checkout.coupon.code');
+            }
+
             $couponData = null;
             $discountAmount = 0;
-            if (! empty($validated['coupon_code'])) {
-                $result = $this->couponRepository->validateCoupon($validated['coupon_code'], $subtotal);
+            if (! empty($couponCode)) {
+                $result = $this->couponRepository->validateCoupon($couponCode, $subtotal);
                 if (! $result['valid']) {
+                    Session::forget('checkout.coupon');
+
                     return redirect()->back()->withInput()->with('error', $result['message'] ?? 'Invalid coupon.');
                 }
                 $couponData = [
                     'code' => $result['coupon']->code(),
-                    'discount' => $result['discount'],
+                    'discount' => round($result['discount'], 2),
                 ];
-                $discountAmount = round($result['discount'], 2);
-            } elseif ($couponSession = Session::get('checkout.coupon')) {
-                $couponData = $couponSession;
-                $discountAmount = round($couponSession['discount'] ?? 0, 2);
+                $discountAmount = min($couponData['discount'], $subtotal);
             }
 
             Session::put('checkout.coupon', $couponData);

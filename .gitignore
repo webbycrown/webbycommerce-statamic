@@ -1,0 +1,14 @@
+/vendor/
+/composer.lock
+.phpunit.result.cache
+/tests/__fixtures__/dev-null/
+/tests/__fixtures__/content/collections/coupons/
+/tests/__fixtures__/content/collections/products/
+/tests/__fixtures__/content/globals/
+/tests/__fixtures__/content/collections/tax_categories.yaml
+/tests/__fixtures__/content/collections/tax_zones.yaml
+/tests/__fixtures__/content/collections/customers/buyer-at-examplecom.md
+/tests/__fixtures__/content/collections/orders/*.md
+!/tests/__fixtures__/content/collections/orders/ord-2026-2fzaygl3.md
+!/tests/__fixtures__/content/collections/orders/ord-2026-3emygxcq.md
+!/tests/__fixtures__/content/collections/orders/ord-2026-3irtwbc3.md

@@ -1,6 +1,6 @@
 ---
 id: 0497d6f4-9a46-4f5b-a5bc-adc9a639e8fd
-blueprint: order
+blueprint: orders
 title: ORD-2026-2FZAYGL3
 order_number: ORD-2026-2FZAYGL3
 reference: ORD-2026-2FZAYGL3

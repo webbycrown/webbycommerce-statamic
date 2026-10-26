@@ -1,6 +1,6 @@
 ---
 id: ded3910c-b118-4bcb-994e-53f60621bbc0
-blueprint: order
+blueprint: orders
 title: ORD-2026-3IRTWBC3
 order_number: ORD-2026-3IRTWBC3
 reference: ORD-2026-3IRTWBC3

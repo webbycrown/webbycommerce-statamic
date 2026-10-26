@@ -134,6 +134,7 @@ class TaxAndStockTest extends TestCase
         $again->assertStatus(400);
 
         $this->putCart('tracked-product', 40, 1);
+        $this->putCheckout(0);
         $blocked = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
             'stripe_token' => 'tok_stock_again',

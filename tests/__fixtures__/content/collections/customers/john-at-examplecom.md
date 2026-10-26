@@ -1,6 +1,6 @@
 ---
 id: 4c2f430e-5bc4-4478-91ce-4e92166eaa8a
-blueprint: customer
+blueprint: customers
 title: 'John Doe'
 first_name: John
 last_name: Doe

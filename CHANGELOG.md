@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.3 — 2026-10-26
+
+### Fixed
+
+- The form checkout route checks the coupon against the current cart before it calculates the total. A discount stored in the session is no longer reused after items are removed.
+
+### Docs
+
+- The README notes that the Stripe Charges flow does not support 3D Secure, and that `/shop/payment/webhook` is a placeholder rejected by CSRF unless the route is excluded.
+
 ## 1.1.2 — 2026-10-11
 
 ### Fixed
