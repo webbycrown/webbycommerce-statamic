@@ -173,6 +173,45 @@ class CheckoutTest extends TestCase
         $response->assertJsonPath('message', 'Your card has insufficient funds.');
     }
 
+    public function test_checkout_refunds_a_charge_when_the_order_cannot_be_saved(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+
+        $entry = \Mockery::mock(\Statamic\Entries\Entry::class);
+        $entry->shouldReceive('slug')->andReturnSelf();
+        $entry->shouldReceive('data')->andReturnSelf();
+        $entry->shouldReceive('published')->andReturnSelf();
+        $entry->shouldReceive('save')->andReturn(false);
+
+        $orders = \Mockery::mock(\WebbyCrown\WebbyCommerceStatamic\Orders\EntryOrderRepository::class)->makePartial();
+        $orders->shouldReceive('make')->andReturn($entry);
+        $this->app->instance(\WebbyCrown\WebbyCommerceStatamic\Orders\EntryOrderRepository::class, $orders);
+
+        Http::fake([
+            'https://api.stripe.com/v1/charges' => Http::response([
+                'id' => 'ch_orphan',
+                'object' => 'charge',
+                'paid' => true,
+            ], 200),
+            'https://api.stripe.com/v1/refunds' => Http::response([
+                'id' => 're_orphan',
+                'object' => 'refund',
+                'charge' => 'ch_orphan',
+            ], 200),
+        ]);
+
+        $response = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_token' => 'tok_mock_token_id',
+        ]);
+
+        $response->assertStatus(500);
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
+            return $request->url() === 'https://api.stripe.com/v1/refunds'
+                && $request['charge'] === 'ch_orphan';
+        });
+    }
+
     public function test_process_checkout_rechecks_coupon_after_items_are_removed(): void
     {
         \Statamic\Facades\Entry::make()

@@ -509,9 +509,12 @@ class CheckoutController
                     Log::error('Order confirmation email failed: ' . $mailEx->getMessage());
                 }
             } catch (\Exception $e) {
+                $this->refundUnrecordedCharge($paymentResult);
+                $this->stockHeld = true;
                 Log::error('Error saving order entry: ' . $e->getMessage(), [
                     'order_number' => $orderNumber,
                     'customer_id' => $customer->id(),
+                    'charge_id' => $paymentResult['charge_id'] ?? null,
                     'trace' => $e->getTraceAsString(),
                 ]);
                 throw $e;
@@ -828,8 +831,14 @@ class CheckoutController
                 ])
                 ->published(true);
 
-            if (! $orderEntry->save()) {
-                throw new \Exception('Failed to save order entry');
+            try {
+                if (! $orderEntry->save()) {
+                    throw new \Exception('Failed to save order entry');
+                }
+            } catch (\Exception $e) {
+                $this->refundUnrecordedCharge($paymentResult);
+                $this->stockHeld = true;
+                throw $e;
             }
 
             // Send confirmation email
@@ -1344,6 +1353,7 @@ class CheckoutController
                 'ok' => true,
                 'is_paid' => true,
                 'payment_status' => 'paid',
+                'charge_id' => $chargeResponse->json('id'),
                 'message' => null,
                 'http_status' => 200,
             ];
@@ -1357,6 +1367,56 @@ class CheckoutController
                 'message' => 'Payment processor error. Please try again.',
                 'http_status' => 500,
             ];
+        }
+    }
+
+    /**
+     * A charge with no saved order is refunded. The charge id is always logged.
+     */
+    protected function refundUnrecordedCharge(array $paymentResult): void
+    {
+        if (! ($paymentResult['is_paid'] ?? false)) {
+            return;
+        }
+
+        $chargeId = $paymentResult['charge_id'] ?? null;
+
+        Log::error('Order was not saved after a successful Stripe charge.', [
+            'charge_id' => $chargeId,
+        ]);
+
+        $secret = config('webbycommerce.payment.gateways.stripe.secret_key');
+
+        if (! $chargeId || ! $secret) {
+            return;
+        }
+
+        try {
+            $refund = \Illuminate\Support\Facades\Http::asForm()
+                ->withBasicAuth($secret, '')
+                ->post('https://api.stripe.com/v1/refunds', [
+                    'charge' => $chargeId,
+                ]);
+
+            if ($refund->failed()) {
+                Log::error('Stripe refund failed after the order could not be saved.', [
+                    'charge_id' => $chargeId,
+                    'status' => $refund->status(),
+                    'body' => $refund->json(),
+                ]);
+
+                return;
+            }
+
+            Log::info('Stripe charge refunded because the order could not be saved.', [
+                'charge_id' => $chargeId,
+                'refund_id' => $refund->json('id'),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Stripe refund failed after the order could not be saved.', [
+                'charge_id' => $chargeId,
+                'message' => $e->getMessage(),
+            ]);
         }
     }
 

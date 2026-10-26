@@ -22,9 +22,12 @@ Marketplace and Composer installs use Packagist. No VCS repository entry is requ
 
 ```bash
 composer require webbycrown/webbycommerce-statamic
+php please webbycommerce:install
 ```
 
-That constraint resolves `webbycrown/webbycommerce-statamic` `^1.1`, including `v1.1.3` and later. The package requires Statamic 5.
+That constraint resolves `webbycrown/webbycommerce-statamic` `^1.1`, including `v1.1.4` and later. The package requires Statamic 5.
+
+`webbycommerce:install` creates the store collections, blueprints, and settings once. It does not change a products or customers collection the site already has. Boot no longer writes those files.
 
 ### Local path development
 
@@ -63,7 +66,7 @@ WebbyCommerce does **not** mark card or PayPal checkouts as paid unless a charge
 
 | Method | Behaviour |
 | --- | --- |
-| **Stripe** (`stripe` / `credit_card`) | Requires `STRIPE_SECRET_KEY` and a client-created **`stripe_token`** (Stripe.js / Elements). Card numbers and CVVs must never be posted to your server. Charge must succeed before `is_paid` / `payment_status: paid`. This Charges API flow does not support 3D Secure, so cards that require Strong Customer Authentication (common in Europe) can be declined. |
+| **Stripe** (`stripe` / `credit_card`) | Requires `STRIPE_SECRET_KEY` and a client-created **`stripe_token`** (Stripe.js / Elements). Card numbers and CVVs must never be posted to your server. Charge must succeed before `is_paid` / `payment_status: paid`. This Charges API flow does not support 3D Secure, so cards that require Strong Customer Authentication (common in Europe) can be declined. If the charge succeeds and the order still cannot be saved, WebbyCommerce refunds that charge and writes the charge id to the log. |
 | **PayPal** | Not implemented for live capture in this release. Checkout returns an error instead of faking payment. |
 | **Bank transfer** | Order is created as **pending / unpaid** for manual reconciliation. |
 | **Webhooks** | `/shop/payment/webhook` is a placeholder. When `STRIPE_WEBHOOK_SECRET` is set it checks `Stripe-Signature` and returns. It does not update the order. The route uses the `web` middleware, so Stripe's POST is rejected by CSRF protection unless that route is excluded. |

@@ -12,6 +12,7 @@ use WebbyCrown\WebbyCommerceStatamic\Tags\WebbyCommerce;
 use WebbyCrown\WebbyCommerceStatamic\Tags\ProductTag;
 use WebbyCrown\WebbyCommerceStatamic\Tags\Wishlist;
 use WebbyCrown\WebbyCommerceStatamic\Tax\TaxManager;
+use WebbyCrown\WebbyCommerceStatamic\Commands\InstallWebbyCommerce;
 use WebbyCrown\WebbyCommerceStatamic\Commands\SeedWebbyCommerceDefaults;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
@@ -82,6 +83,7 @@ class ServiceProvider extends AddonServiceProvider
 
         if ($this->app->runningInConsole()) {
             $this->commands([
+                InstallWebbyCommerce::class,
                 SeedWebbyCommerceDefaults::class,
             ]);
         }
@@ -106,10 +108,18 @@ class ServiceProvider extends AddonServiceProvider
 
         $this->registerPermissions();
         $this->registerRoutes();
-        $this->registerCollections();
-        $this->registerGlobals();
         $this->syncGlobalPaymentSettings();
         $this->createNavItems();
+    }
+
+    /**
+     * Create missing store collections, blueprints, and settings.
+     * Existing collections, including products and customers, are left as they are.
+     */
+    public function installStore(): void
+    {
+        $this->registerCollections();
+        $this->registerGlobals();
     }
 
     protected function registerCollections()
@@ -247,33 +257,15 @@ class ServiceProvider extends AddonServiceProvider
             ],
         ];
 
-        // Create/update collection YAML files only if they don't exist or are missing key configs
         foreach ($collections as $handle => $config) {
             $yamlFile = $collectionsPath.'/'.$handle.'.yaml';
 
-            if (! File::exists($yamlFile)) {
-                File::put($yamlFile, Yaml::dump($config));
-                Log::info('Collection YAML created: '.$handle);
+            if (File::exists($yamlFile) || Collection::findByHandle($handle)) {
                 continue;
             }
 
-            $existingConfig = Yaml::parseFile($yamlFile);
-            $changed = false;
-
-            if (! isset($existingConfig['date_behavior'])) {
-                $existingConfig['date_behavior'] = $config['date_behavior'];
-                $changed = true;
-            }
-
-            if (! isset($existingConfig['blueprints'])) {
-                $existingConfig['blueprints'] = $config['blueprints'];
-                $changed = true;
-            }
-
-            if ($changed) {
-                File::put($yamlFile, Yaml::dump($existingConfig));
-                Log::info('Collection YAML updated: '.$handle);
-            }
+            File::put($yamlFile, Yaml::dump($config));
+            Log::info('Collection YAML created: '.$handle);
         }
 
         // Copy collection blueprints from addon to project if they don't exist

@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.4 — 2026-10-26
+
+### Fixed
+
+- A Stripe charge is refunded, and its charge id is logged, when the order cannot be saved.
+- Collections, blueprints, and settings are created by `php please webbycommerce:install`. Boot no longer writes them, and an existing products or customers collection is left unchanged.
+
+### Removed
+
+- Unused `WebbycommerceService` classes and `resources/statamic-vue/index.html`.
+
 ## 1.1.3 — 2026-10-26
 
 ### Fixed
