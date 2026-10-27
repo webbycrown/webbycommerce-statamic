@@ -2,12 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## 1.1.5 — 2026-10-27
 
 ### Fixed
 
 - `php please webbycommerce:install` creates the store collections. The command calls the installer directly, so a fresh site no longer fails while Laravel resolves the service provider.
 - AJAX checkout (`/shop/checkout/complete`) uses the coupon already stored in the session when the request does not send `coupon_code` again. The discount cannot exceed the subtotal, so a large fixed coupon cannot make the charge negative.
+- Stripe charges use the currency's minor units. A ¥1,000 order is sent as 1000 yen, and a $10 order is sent as 1000 cents. The Control Panel currency is the currency used for the charge.
+- Checkout stops when shipping locations are configured and the address matches none of them. A missing rule is not free shipping.
+- Checkout form errors restore only the fields the visitor should see again. Card number and security code are not stored in the session.
+- Checkout stops if the stock lock cannot be acquired, so two checkouts cannot reserve the same units without that lock.
 
 ### Changed
 

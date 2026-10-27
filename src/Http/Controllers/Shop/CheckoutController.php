@@ -6,6 +6,7 @@ use WebbyCrown\WebbyCommerceStatamic\Cart\Cart;
 use WebbyCrown\WebbyCommerceStatamic\Coupons\EntryCouponRepository;
 use WebbyCrown\WebbyCommerceStatamic\Customers\EntryCustomerRepository;
 use WebbyCrown\WebbyCommerceStatamic\Orders\EntryOrderRepository;
+use WebbyCrown\WebbyCommerceStatamic\Helpers\CurrencyHelper;
 use WebbyCrown\WebbyCommerceStatamic\Shipping\ShippingManager;
 use WebbyCrown\WebbyCommerceStatamic\Tax\TaxManager;
 use Illuminate\Http\JsonResponse;
@@ -46,7 +47,7 @@ class CheckoutController
             ], 422);
         }
 
-        return redirect()->back()->withInput()->with('error', $message);
+        return $this->backWithCheckoutInput()->with('error', $message);
     }
 
     protected function releaseHeldStock(): void
@@ -57,6 +58,30 @@ class CheckoutController
 
         $this->cart->releaseStock();
         $this->stockHeld = false;
+    }
+
+    /**
+     * Restore only the checkout fields a visitor should see again.
+     * Card numbers and security codes are never flashed into the session.
+     */
+    protected function backWithCheckoutInput()
+    {
+        return redirect()->back()->withInput(request()->only([
+            'email',
+            'first_name',
+            'last_name',
+            'phone',
+            'billing_address',
+            'shipping_address',
+            'shipping_same_as_billing',
+            'payment_method',
+            'coupon_code',
+            'notes',
+            'shipping_method',
+            'bank_sender_name',
+            'bank_transaction_ref',
+            'paypal_email',
+        ]));
     }
 
     public function __construct(
@@ -350,6 +375,12 @@ class CheckoutController
             // Securely calculate and override shipping cost based on backend config/rates
             $shippingMethod = $checkoutData['shipping']['shipping_method'] ?? config('webbycommerce.shipping.default_method', 'standard');
             $resolvedShipping = $this->resolveShippingForCheckout($shippingMethod, $shippingAddress);
+            if (! empty($resolvedShipping['unavailable'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'We cannot ship to this address.',
+                ], 422);
+            }
             $shippingAmount = round($resolvedShipping['shipping_cost'] ?? 0.0, 2);
 
             // Update session data with the verified shipping cost
@@ -616,7 +647,7 @@ class CheckoutController
 
             if (in_array($validated['payment_method'] ?? '', ['credit_card', 'stripe'], true)
                 && ($request->filled('card_number') || $request->filled('card_cvv'))) {
-                return redirect()->back()->withInput()->with('error',
+                return $this->backWithCheckoutInput()->with('error',
                     'Card details must not be sent to the server. Create a Stripe.js token and send stripe_token only.');
             }
 
@@ -640,6 +671,9 @@ class CheckoutController
             // Resolve shipping cost
             $shippingMethod = $validated['shipping_method'] ?? config('webbycommerce.shipping.default_method', 'standard');
             $resolvedShipping = $this->resolveShippingForCheckout($shippingMethod, $shippingAddress);
+            if (! empty($resolvedShipping['unavailable'])) {
+                return $this->backWithCheckoutInput()->with('error', 'We cannot ship to this address.');
+            }
             Session::put('checkout.shipping', $resolvedShipping);
             $shippingAmount = round($resolvedShipping['shipping_cost'] ?? 0.0, 2);
             $cartData = $this->cart->toArray();
@@ -656,7 +690,7 @@ class CheckoutController
             // when the coupon was applied must not survive a smaller cart.
             $resolvedCoupon = $this->resolveAppliedCoupon($validated['coupon_code'] ?? null, $subtotal);
             if (! $resolvedCoupon['ok']) {
-                return redirect()->back()->withInput()->with('error', $resolvedCoupon['message'] ?? 'Invalid coupon.');
+                return $this->backWithCheckoutInput()->with('error', $resolvedCoupon['message'] ?? 'Invalid coupon.');
             }
 
             $couponData = $resolvedCoupon['coupon'];
@@ -671,7 +705,7 @@ class CheckoutController
             }
 
             if (! $this->cart->reserveStock()) {
-                return redirect()->back()->withInput()->with('error', 'Not enough stock to complete this order.');
+                return $this->backWithCheckoutInput()->with('error', 'Not enough stock to complete this order.');
             }
 
             $this->stockHeld = true;
@@ -746,7 +780,7 @@ class CheckoutController
             if (! $paymentResult['ok']) {
                 $this->releaseHeldStock();
 
-                return redirect()->back()->withInput()->with('error', $paymentResult['message']);
+                return $this->backWithCheckoutInput()->with('error', $paymentResult['message']);
             }
 
             $this->stockHeld = false;
@@ -853,13 +887,13 @@ class CheckoutController
                 ->with('success', 'Order placed successfully! Order number: ' . $orderNumber);
 
         } catch (ValidationException $e) {
-            return redirect()->back()->withInput()->withErrors($e->errors())->with('error', 'Please correct the errors below.');
+            return $this->backWithCheckoutInput()->withErrors($e->errors())->with('error', 'Please correct the errors below.');
         } catch (\Exception $e) {
             $this->releaseHeldStock();
             Log::error('Checkout process error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
-            return redirect()->back()->withInput()->with('error', 'The checkout could not be completed. Please try again.');
+            return $this->backWithCheckoutInput()->with('error', 'The checkout could not be completed. Please try again.');
         }
     }
 
@@ -877,7 +911,7 @@ class CheckoutController
 
         if (! $result['valid']) {
             Session::forget('checkout.coupon');
-            return redirect()->back()->withInput()->with('error', $result['message'] ?? 'Invalid coupon code.');
+            return $this->backWithCheckoutInput()->with('error', $result['message'] ?? 'Invalid coupon code.');
         }
 
         Session::put('checkout.coupon', [
@@ -885,7 +919,7 @@ class CheckoutController
             'discount' => $result['discount'],
         ]);
 
-        return redirect()->back()->withInput()->with('success', 'Coupon applied! Discount: $' . number_format($result['discount'], 2));
+        return $this->backWithCheckoutInput()->with('success', 'Coupon applied! Discount: $' . number_format($result['discount'], 2));
     }
 
     public function validateCoupon(Request $request): JsonResponse
@@ -1053,19 +1087,18 @@ class CheckoutController
                 ];
             }
 
-            // If shipping location rules are configured and no location matched,
-            // do not apply a shipping charge. Preserve checkout flow with a zero-cost response.
-            $defaultEntry = $this->shippingManager->allRates()->first();
-            $methodName = $defaultEntry?->value('name') ?? ucfirst($preferredMethod ?? 'shipping');
-            $methodId = $preferredMethod ?: ($previousShipping['shipping_method'] ?? 'shipping_locations');
-
+            // Locations are configured and none match this address.
+            // A missing rule is not free shipping.
             return [
-                'shipping_method' => $methodId,
-                'shipping_method_name' => $methodName,
+                'unavailable' => true,
+                'shipping_method' => null,
+                'shipping_method_name' => null,
                 'shipping_cost' => 0.0,
                 'shipping_methods' => [],
                 'location_signature' => $locationSignature,
                 'location_changed' => $locationChanged,
+                'free_shipping_applied' => false,
+                'shipping_discount' => 0.0,
             ];
         }
 
@@ -1352,8 +1385,8 @@ class CheckoutController
             $chargeResponse = \Illuminate\Support\Facades\Http::asForm()
                 ->withBasicAuth($stripeSecret, '')
                 ->post('https://api.stripe.com/v1/charges', [
-                    'amount' => (int) round($total * 100),
-                    'currency' => strtolower(config('webbycommerce.currency', 'usd')),
+                    'amount' => CurrencyHelper::stripeAmount($total),
+                    'currency' => CurrencyHelper::stripeCurrency(),
                     'source' => $tokenId,
                     'description' => 'Order '.$orderNumber,
                     'receipt_email' => $customerEmail,

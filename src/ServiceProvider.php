@@ -129,6 +129,11 @@ class ServiceProvider extends AddonServiceProvider
                 return;
             }
 
+            $currency = $variables->get('currency');
+            if (is_string($currency) && trim($currency) !== '') {
+                config(['webbycommerce.currency' => strtoupper(trim($currency))]);
+            }
+
             $defaultGateway = $variables->get('payment_gateway');
             $stripePublishableKey = $variables->get('stripe_publishable_key');
             $paypalClientId = $variables->get('paypal_client_id');

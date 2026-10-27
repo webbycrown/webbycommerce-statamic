@@ -418,4 +418,261 @@ class CheckoutTest extends TestCase
         $response->assertStatus(400);
         $response->assertJsonPath('success', false);
     }
+
+    public function test_stripe_charge_uses_minor_units_for_usd_and_jpy(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+        Http::fake([
+            'https://api.stripe.com/v1/charges' => Http::response([
+                'id' => 'ch_currency',
+                'object' => 'charge',
+                'paid' => true,
+            ], 200),
+        ]);
+
+        $this->setCartTotal(10);
+        $this->setStoreCurrency('USD');
+
+        $usd = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_token' => 'tok_usd',
+        ]);
+        $usd->assertOk();
+
+        $this->setCartTotal(1000);
+        $this->setStoreCurrency('JPY');
+        Session::put('checkout', [
+            'address' => [
+                'email' => 'john@example.com',
+                'first_name' => 'John',
+                'last_name' => 'Doe',
+                'phone' => '1234567890',
+                'shipping_same_as_billing' => true,
+                'billing_address' => [
+                    'street' => '123 Main St',
+                    'city' => 'New York',
+                    'state' => 'NY',
+                    'postal_code' => '10001',
+                    'country' => 'USA',
+                ],
+            ],
+            'shipping' => [
+                'shipping_method' => 'standard',
+                'shipping_cost' => 0,
+            ],
+        ]);
+
+        $jpy = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_token' => 'tok_jpy',
+        ]);
+        $jpy->assertOk();
+
+        $payloads = [];
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) use (&$payloads) {
+            if ($request->url() === 'https://api.stripe.com/v1/charges') {
+                $payloads[] = [
+                    'amount' => (int) $request['amount'],
+                    'currency' => $request['currency'],
+                ];
+            }
+
+            return true;
+        });
+
+        $this->assertSame([
+            ['amount' => 1000, 'currency' => 'usd'],
+            ['amount' => 1000, 'currency' => 'jpy'],
+        ], $payloads);
+    }
+
+    public function test_checkout_complete_rejects_an_unshippable_country(): void
+    {
+        $this->setShippingLocations([[
+            'country' => 'US',
+            'state' => '*',
+            'city' => '*',
+            'zip_code' => '*',
+            'shipping_charge' => 15,
+            'is_active' => true,
+        ]]);
+
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+        Http::fake([
+            'https://api.stripe.com/v1/charges' => Http::response([
+                'id' => 'ch_should_not_ship',
+                'paid' => true,
+            ], 200),
+        ]);
+
+        Session::put('checkout.address.billing_address', [
+            'street' => '1 King St',
+            'city' => 'Toronto',
+            'state' => 'ON',
+            'postal_code' => 'M5V 2T6',
+            'country' => 'Canada',
+        ]);
+
+        $response = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_token' => 'tok_mock_token_id',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        Http::assertNothingSent();
+    }
+
+    public function test_process_checkout_rejects_an_unshippable_postcode(): void
+    {
+        $this->setShippingLocations([[
+            'country' => 'USA',
+            'state' => '*',
+            'city' => '*',
+            'zip_code' => '10001',
+            'shipping_charge' => 15,
+            'is_active' => true,
+        ]]);
+
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+        Http::fake([
+            'https://api.stripe.com/v1/charges' => Http::response([
+                'id' => 'ch_should_not_ship',
+                'paid' => true,
+            ], 200),
+        ]);
+
+        $payload = $this->bankTransferCheckout();
+        $payload['payment_method'] = 'stripe';
+        $payload['stripe_token'] = 'tok_mock_token_id';
+        $payload['billing_address']['postal_code'] = '90210';
+
+        $response = $this->post(route('shop.checkout.process'), $payload);
+
+        $response->assertRedirect();
+        $response->assertSessionHas('error', 'We cannot ship to this address.');
+        Http::assertNothingSent();
+    }
+
+    public function test_matching_free_shipping_rule_still_checks_out(): void
+    {
+        $this->setShippingLocations([[
+            'country' => 'USA',
+            'state' => '*',
+            'city' => '*',
+            'zip_code' => '*',
+            'shipping_charge' => 0,
+            'is_active' => true,
+        ]]);
+
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+        Http::fake([
+            'https://api.stripe.com/v1/charges' => Http::response([
+                'id' => 'ch_free_ship',
+                'object' => 'charge',
+                'paid' => true,
+            ], 200),
+        ]);
+
+        $this->setCartTotal(10);
+
+        $response = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_token' => 'tok_free',
+        ]);
+
+        $response->assertOk();
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
+            return $request->url() === 'https://api.stripe.com/v1/charges'
+                && (int) $request['amount'] === 1000;
+        });
+    }
+
+    public function test_form_checkout_does_not_flash_card_fields(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+
+        $valid = $this->bankTransferCheckout();
+        $valid['payment_method'] = 'stripe';
+        $valid['stripe_token'] = 'tok_mock_token_id';
+        $valid['card_number'] = '4242424242424242';
+        $valid['card_cvv'] = '123';
+
+        $rejected = $this->post(route('shop.checkout.process'), $valid);
+        $rejected->assertSessionHas('error');
+        $old = session('_old_input');
+        $this->assertIsArray($old);
+        $this->assertArrayNotHasKey('card_number', $old);
+        $this->assertArrayNotHasKey('card_cvv', $old);
+        $this->assertSame('john@example.com', $old['email']);
+
+        $invalid = $valid;
+        unset($invalid['email']);
+        $invalid['first_name'] = 'Jane';
+
+        $failed = $this->post(route('shop.checkout.process'), $invalid);
+        $failed->assertSessionHasErrors('email');
+        $old = session('_old_input');
+        $this->assertIsArray($old);
+        $this->assertArrayNotHasKey('card_number', $old);
+        $this->assertArrayNotHasKey('card_cvv', $old);
+        $this->assertSame('Jane', $old['first_name']);
+    }
+
+    public function test_checkout_stops_when_the_stock_lock_cannot_be_acquired(): void
+    {
+        $held = \Illuminate\Support\Facades\Cache::lock('webbycommerce-stock', 30);
+        $this->assertTrue($held->get());
+
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+        Http::fake([
+            'https://api.stripe.com/v1/charges' => Http::response([
+                'id' => 'ch_should_not',
+                'paid' => true,
+            ], 200),
+        ]);
+
+        $response = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_token' => 'tok_mock_token_id',
+        ]);
+
+        $response->assertStatus(422);
+        Http::assertNothingSent();
+        $held->release();
+    }
+
+    private function setCartTotal(float $price): void
+    {
+        Session::put('cart', [
+            'items' => [
+                'test_key' => [
+                    'product_id' => 'test-product-id',
+                    'name' => 'Test Product',
+                    'slug' => 'test-product',
+                    'sku' => 'TEST-SKU',
+                    'price' => $price,
+                    'image' => null,
+                    'quantity' => 1,
+                    'options' => [],
+                ],
+            ],
+            'coupon' => null,
+        ]);
+    }
+
+    private function setStoreCurrency(string $currency): void
+    {
+        Config::set('webbycommerce.currency', 'USD');
+        $variables = \Statamic\Facades\GlobalSet::findByHandle('webbycommerce_settings')?->inDefaultSite();
+        $this->assertNotNull($variables);
+        $variables->set('currency', $currency);
+    }
+
+    private function setShippingLocations(array $locations): void
+    {
+        $variables = \Statamic\Facades\GlobalSet::findByHandle('webbycommerce_settings')?->inDefaultSite();
+        $this->assertNotNull($variables);
+        $variables->set('shipping_locations', $locations);
+    }
 }

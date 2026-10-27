@@ -361,24 +361,22 @@ class Cart
 
     protected function withStockLock(callable $callback): bool
     {
-        $lock = null;
-
         try {
             $lock = \Illuminate\Support\Facades\Cache::lock('webbycommerce-stock', 15);
             $lock->block(5);
         } catch (\Throwable $e) {
-            $lock = null;
+            \Illuminate\Support\Facades\Log::error('Could not lock stock for checkout.');
+
+            return false;
         }
 
         try {
             return (bool) $callback();
         } finally {
-            if ($lock) {
-                try {
-                    $lock->release();
-                } catch (\Throwable $e) {
-                    //
-                }
+            try {
+                $lock->release();
+            } catch (\Throwable $e) {
+                // The stock change already happened.
             }
         }
     }

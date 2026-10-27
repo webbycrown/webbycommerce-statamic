@@ -204,10 +204,10 @@ class ShippingManager
         $matchResult = $this->matchLocation($locations, $address, $subtotal);
 
         if ($matchResult === null) {
-            // If this rate item is based on configured shipping locations and no location matched,
-            // do not apply a shipping charge.
+            // A configured location list that does not match this address is
+            // not a free-shipping rate.
             if (! empty($locations) && $entry->value('shipping_locations')) {
-                return 0.0;
+                return null;
             }
 
             // Check if this is a default/fallback rate when no configured locations exist.
