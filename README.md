@@ -29,6 +29,10 @@ That constraint resolves `webbycrown/webbycommerce-statamic` `^1.1`, including `
 
 `webbycommerce:install` creates the store collections, blueprints, and settings once. It does not change a products or customers collection the site already has. Boot no longer writes those files.
 
+Orders and customers are saved as flat-file entries under `content/collections/orders` and `content/collections/customers`. Those files include names, email addresses, and addresses. Keep them out of Git.
+
+Control Panel access follows Statamic's own collection permissions. The add-on also registers WebbyCommerce permission names, and those names are not checked.
+
 ### Local path development
 
 ```json
@@ -191,7 +195,9 @@ Community support via GitHub Issues unless you have a separate WebbyCrown suppor
 
 | File | Purpose |
 | --- | --- |
-| `src/ServiceProvider.php` | Routes, collections, permissions, config merge |
+| `src/ServiceProvider.php` | Routes, permissions, config merge |
+| `src/Install/StoreInstaller.php` | Collections, blueprints, and settings created by `webbycommerce:install` |
+| `src/Commands/InstallWebbyCommerce.php` | Install command |
 | `routes/shop.php` | Storefront routes |
 | `config/webbycommerce.php` | Package configuration |
 | `resources/blueprints/` | Collection and globals blueprints |

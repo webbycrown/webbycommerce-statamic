@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- `php please webbycommerce:install` creates the store collections. The command calls the installer directly, so a fresh site no longer fails while Laravel resolves the service provider.
+- AJAX checkout (`/shop/checkout/complete`) uses the coupon already stored in the session when the request does not send `coupon_code` again. The discount cannot exceed the subtotal, so a large fixed coupon cannot make the charge negative.
+
+### Changed
+
+- `/shop/products` no longer includes `cost_price`.
+- A checkout failure returns a generic message. The exception text stays in the log.
+
 ## 1.1.4 — 2026-10-26
 
 ### Fixed

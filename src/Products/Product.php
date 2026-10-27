@@ -364,7 +364,6 @@ class Product
             'price' => $this->price(),
             'sale_price' => $this->salePrice(),
             'compare_price' => $this->comparePrice(),
-            'cost_price' => $this->costPrice(),
             'final_price' => $this->finalPrice(),
             'description' => $this->description(),
             'short_description' => $this->shortDescription(),

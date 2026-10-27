@@ -3,7 +3,7 @@
 namespace WebbyCrown\WebbyCommerceStatamic\Commands;
 
 use Illuminate\Console\Command;
-use WebbyCrown\WebbyCommerceStatamic\ServiceProvider;
+use WebbyCrown\WebbyCommerceStatamic\Install\StoreInstaller;
 
 class InstallWebbyCommerce extends Command
 {
@@ -13,7 +13,7 @@ class InstallWebbyCommerce extends Command
 
     public function handle(): int
     {
-        app(ServiceProvider::class)->installStore();
+        (new StoreInstaller)->install();
 
         $this->info('WebbyCommerce is installed. Existing products, customers, and other collections were left unchanged.');
 

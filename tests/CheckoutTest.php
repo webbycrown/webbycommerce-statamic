@@ -306,6 +306,105 @@ class CheckoutTest extends TestCase
         ];
     }
 
+    public function test_checkout_complete_charges_the_session_coupon_when_the_request_omits_it(): void
+    {
+        $this->saveCoupon('tenoff', 'TENOFF', 'fixed', 10);
+        Session::put('checkout.coupon', [
+            'code' => 'TENOFF',
+            'discount' => 10,
+        ]);
+
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+        Http::fake([
+            'https://api.stripe.com/v1/charges' => Http::response([
+                'id' => 'ch_coupon',
+                'object' => 'charge',
+                'paid' => true,
+            ], 200),
+        ]);
+
+        $response = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_token' => 'tok_mock_token_id',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('success', true);
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
+            return $request->url() === 'https://api.stripe.com/v1/charges'
+                && (int) $request['amount'] === 9000;
+        });
+    }
+
+    public function test_checkout_complete_caps_a_fixed_coupon_at_the_subtotal(): void
+    {
+        $this->saveCoupon('huge', 'HUGE', 'fixed', 500);
+        Session::put('checkout.coupon', [
+            'code' => 'HUGE',
+            'discount' => 500,
+        ]);
+
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+        Http::fake([
+            'https://api.stripe.com/v1/charges' => Http::response([
+                'id' => 'ch_capped',
+                'object' => 'charge',
+                'paid' => true,
+            ], 200),
+        ]);
+
+        $response = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_token' => 'tok_mock_token_id',
+        ]);
+
+        $response->assertOk();
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
+            return $request->url() === 'https://api.stripe.com/v1/charges'
+                && (int) $request['amount'] >= 0
+                && (int) $request['amount'] === 0;
+        });
+    }
+
+    public function test_product_listing_does_not_publish_cost_price(): void
+    {
+        \Statamic\Facades\Entry::make()
+            ->collection('products')
+            ->slug('margin-product')
+            ->published(true)
+            ->data([
+                'title' => 'Margin Product',
+                'price' => 20,
+                'cost_price' => 5,
+                'status' => 'active',
+            ])
+            ->save();
+
+        $response = $this->getJson(route('shop.products.index'));
+
+        $response->assertOk();
+        $product = collect($response->json('products'))->firstWhere('slug', 'margin-product');
+        $this->assertNotNull($product);
+        $this->assertArrayNotHasKey('cost_price', $product);
+        $this->assertSame(20.0, (float) $product['price']);
+    }
+
+    private function saveCoupon(string $slug, string $code, string $type, float $value): void
+    {
+        \Statamic\Facades\Entry::make()
+            ->collection('coupons')
+            ->slug($slug)
+            ->published(true)
+            ->data([
+                'title' => $code,
+                'code' => $code,
+                'type' => $type,
+                'value' => $value,
+                'minimum_amount' => 0,
+            ])
+            ->save();
+    }
+
     public function test_checkout_complete_empty_cart_error_state(): void
     {
         Session::put('cart', ['items' => [], 'coupon' => null]);

@@ -289,27 +289,21 @@ class CheckoutController
                 ], 422);
             }
 
-            $couponData = null;
+            $checkoutData['payment'] = $paymentData;
+            Session::put('checkout.payment', $paymentData);
 
-            if (!empty($paymentData['coupon_code'])) {
-                $result = $this->couponRepository->validateCoupon($paymentData['coupon_code'], $this->cart->subtotal());
-
-                if (!$result['valid']) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => $result['message'],
-                    ], 400);
-                }
-
-                $couponData = [
-                    'code' => $result['coupon']->code(),
-                    'discount' => $result['discount'],
-                ];
+            $subtotal = round($this->cart->subtotal(), 2);
+            $resolvedCoupon = $this->resolveAppliedCoupon($paymentData['coupon_code'] ?? null, $subtotal);
+            if (! $resolvedCoupon['ok']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $resolvedCoupon['message'],
+                ], 400);
             }
 
-            $checkoutData['payment'] = $paymentData;
+            $couponData = $resolvedCoupon['coupon'];
+            $discountAmount = $resolvedCoupon['discount'];
             $checkoutData['coupon'] = $couponData;
-            Session::put('checkout.payment', $paymentData);
             Session::put('checkout.coupon', $couponData);
 
             $address = $checkoutData['address'];
@@ -353,8 +347,6 @@ class CheckoutController
                 throw new \Exception('Failed to load customer entry');
             }
 
-            $subtotal = round($this->cart->subtotal(), 2);
-
             // Securely calculate and override shipping cost based on backend config/rates
             $shippingMethod = $checkoutData['shipping']['shipping_method'] ?? config('webbycommerce.shipping.default_method', 'standard');
             $resolvedShipping = $this->resolveShippingForCheckout($shippingMethod, $shippingAddress);
@@ -364,8 +356,6 @@ class CheckoutController
             $checkoutData['shipping'] = $resolvedShipping;
             Session::put('checkout.shipping', $checkoutData['shipping']);
             $cartData = $this->cart->toArray();
-
-            $discountAmount = round($checkoutData['coupon']['discount'] ?? 0, 2);
 
             // Calculate tax using the current checkout address and verified shipping amount.
             $taxBreakdown = $this->cart->getTaxBreakdown();
@@ -570,7 +560,7 @@ class CheckoutController
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error completing checkout: ' . $e->getMessage(),
+                'message' => 'The checkout could not be completed. Please try again.',
             ], 500);
         }
     }
@@ -664,27 +654,13 @@ class CheckoutController
 
             // Re-check any coupon against the cart as it is now. A discount stored
             // when the coupon was applied must not survive a smaller cart.
-            $couponCode = $validated['coupon_code'] ?? null;
-            if ($couponCode === null || $couponCode === '') {
-                $couponCode = Session::get('checkout.coupon.code');
+            $resolvedCoupon = $this->resolveAppliedCoupon($validated['coupon_code'] ?? null, $subtotal);
+            if (! $resolvedCoupon['ok']) {
+                return redirect()->back()->withInput()->with('error', $resolvedCoupon['message'] ?? 'Invalid coupon.');
             }
 
-            $couponData = null;
-            $discountAmount = 0;
-            if (! empty($couponCode)) {
-                $result = $this->couponRepository->validateCoupon($couponCode, $subtotal);
-                if (! $result['valid']) {
-                    Session::forget('checkout.coupon');
-
-                    return redirect()->back()->withInput()->with('error', $result['message'] ?? 'Invalid coupon.');
-                }
-                $couponData = [
-                    'code' => $result['coupon']->code(),
-                    'discount' => round($result['discount'], 2),
-                ];
-                $discountAmount = min($couponData['discount'], $subtotal);
-            }
-
+            $couponData = $resolvedCoupon['coupon'];
+            $discountAmount = $resolvedCoupon['discount'];
             Session::put('checkout.coupon', $couponData);
 
             $total = $this->cart->chargeableTotal($subtotal, $shippingAmount, $taxAmount, $discountAmount);
@@ -883,7 +859,7 @@ class CheckoutController
             Log::error('Checkout process error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
-            return redirect()->back()->withInput()->with('error', 'Error completing checkout: ' . $e->getMessage());
+            return redirect()->back()->withInput()->with('error', 'The checkout could not be completed. Please try again.');
         }
     }
 
@@ -1004,6 +980,52 @@ class CheckoutController
         }
 
         return $cost;
+    }
+
+    /**
+     * Use the coupon sent with this request, or the one already stored in the session.
+     * The discount is checked against the current subtotal and cannot exceed it.
+     *
+     * @return array{ok: bool, message: ?string, coupon: ?array, discount: float}
+     */
+    protected function resolveAppliedCoupon(?string $requestCode, float $subtotal): array
+    {
+        $couponCode = $requestCode;
+        if ($couponCode === null || $couponCode === '') {
+            $stored = Session::get('checkout.coupon');
+            $couponCode = is_array($stored) ? ($stored['code'] ?? null) : null;
+        }
+
+        $subtotal = round(max($subtotal, 0), 2);
+
+        if ($couponCode === null || $couponCode === '') {
+            return ['ok' => true, 'message' => null, 'coupon' => null, 'discount' => 0.0];
+        }
+
+        $result = $this->couponRepository->validateCoupon($couponCode, $subtotal);
+
+        if (! $result['valid']) {
+            Session::forget('checkout.coupon');
+
+            return [
+                'ok' => false,
+                'message' => $result['message'] ?? 'Invalid coupon.',
+                'coupon' => null,
+                'discount' => 0.0,
+            ];
+        }
+
+        $discount = min(round((float) $result['discount'], 2), $subtotal);
+
+        return [
+            'ok' => true,
+            'message' => null,
+            'coupon' => [
+                'code' => $result['coupon']->code(),
+                'discount' => $discount,
+            ],
+            'discount' => $discount,
+        ];
     }
 
     protected function resolveShippingForCheckout(?string $preferredMethod = null, ?array $address = null): array

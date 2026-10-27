@@ -177,6 +177,7 @@ class Cart
     public function chargeableTotal(float $subtotal, float $shipping, float $tax, float $discount): float
     {
         $taxToAdd = $this->isTaxIncluded() ? 0.0 : $tax;
+        $discount = min(max($discount, 0.0), max($subtotal, 0.0));
 
         return round($subtotal + $shipping + $taxToAdd - $discount, 2);
     }
