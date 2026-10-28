@@ -33,13 +33,11 @@ class TaxAndStockTest extends TestCase
         $this->putCart('inclusive-product', 120, 1);
         $this->putCheckout(0);
 
-        Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response(['id' => 'ch_inclusive', 'paid' => true], 200),
-        ]);
+        $this->fakeSuccessfulPaymentIntent();
 
         $complete = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_inclusive',
+            'stripe_payment_method' => 'pm_inclusive',
         ]);
 
         $complete->assertOk();
@@ -53,11 +51,11 @@ class TaxAndStockTest extends TestCase
         $this->putCart('inclusive-product', 120, 1);
         $this->putCheckout(0);
 
-        $process = $this->from('/checkout')->post(route('shop.checkout.process'), $this->processPayload('tok_inclusive_form'));
+        $process = $this->from('/checkout')->post(route('shop.checkout.process'), $this->processPayload('pm_inclusive_form'));
         $process->assertRedirect();
         $process->assertSessionHas('success');
 
-        Http::assertSent(fn ($request) => $request['source'] === 'tok_inclusive_form' && (int) $request['amount'] === 12000);
+        Http::assertSent(fn ($request) => $request['payment_method'] === 'pm_inclusive_form' && (int) $request['amount'] === 12000);
     }
 
     public function test_tax_exclusive_checkout_adds_tax_once(): void
@@ -67,13 +65,11 @@ class TaxAndStockTest extends TestCase
         $this->putCart('exclusive-product', 100, 1);
         $this->putCheckout(0);
 
-        Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response(['id' => 'ch_exclusive', 'paid' => true], 200),
-        ]);
+        $this->fakeSuccessfulPaymentIntent();
 
         $complete = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_exclusive',
+            'stripe_payment_method' => 'pm_exclusive',
         ]);
 
         $complete->assertOk();
@@ -82,10 +78,10 @@ class TaxAndStockTest extends TestCase
         $this->putCart('exclusive-product', 100, 1);
         $this->putCheckout(0);
 
-        $process = $this->from('/checkout')->post(route('shop.checkout.process'), $this->processPayload('tok_exclusive_form'));
+        $process = $this->from('/checkout')->post(route('shop.checkout.process'), $this->processPayload('pm_exclusive_form'));
         $process->assertRedirect();
         $process->assertSessionHas('success');
-        Http::assertSent(fn ($request) => $request['source'] === 'tok_exclusive_form' && (int) $request['amount'] === 12000);
+        Http::assertSent(fn ($request) => $request['payment_method'] === 'pm_exclusive_form' && (int) $request['amount'] === 12000);
     }
 
     public function test_zero_stock_and_over_quantity_cannot_be_purchased(): void
@@ -115,13 +111,11 @@ class TaxAndStockTest extends TestCase
 
         $this->putCheckout(0);
 
-        Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response(['id' => 'ch_stock', 'paid' => true], 200),
-        ]);
+        $this->fakeSuccessfulPaymentIntent();
 
         $complete = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_stock',
+            'stripe_payment_method' => 'pm_stock',
         ]);
         $complete->assertOk();
 
@@ -137,10 +131,10 @@ class TaxAndStockTest extends TestCase
         $this->putCheckout(0);
         $blocked = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_stock_again',
+            'stripe_payment_method' => 'pm_stock_again',
         ]);
         $blocked->assertStatus(422);
-        Http::assertNotSent(fn ($request) => ($request['source'] ?? null) === 'tok_stock_again');
+        Http::assertNotSent(fn ($request) => ($request['payment_method'] ?? null) === 'pm_stock_again');
     }
 
     protected function seedProduct(string $id, float $price, int $stock, bool $track = true): void
@@ -219,7 +213,7 @@ class TaxAndStockTest extends TestCase
             ],
             'shipping_same_as_billing' => true,
             'payment_method' => 'stripe',
-            'stripe_token' => $token,
+            'stripe_payment_method' => $token,
             'shipping_method' => 'standard',
         ];
     }

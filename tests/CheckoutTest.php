@@ -76,7 +76,7 @@ class CheckoutTest extends TestCase
 
         $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_mock_token_id',
+            'stripe_payment_method' => 'pm_mock_token_id',
         ]);
 
         $response->assertStatus(422);
@@ -90,7 +90,7 @@ class CheckoutTest extends TestCase
 
         $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_mock_token_id',
+            'stripe_payment_method' => 'pm_mock_token_id',
             'card_number' => '4242 4242 4242 4242',
             'card_cvv' => '123',
         ]);
@@ -100,7 +100,7 @@ class CheckoutTest extends TestCase
         $this->assertStringContainsString('must not be sent to the server', $response->json('message'));
     }
 
-    public function test_checkout_requires_stripe_token(): void
+    public function test_checkout_requires_stripe_payment_method(): void
     {
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
 
@@ -120,32 +120,26 @@ class CheckoutTest extends TestCase
 
         $response->assertStatus(422);
         $response->assertJsonPath('success', false);
-        $this->assertStringContainsString('PayPal capture is not available', $response->json('message'));
+        $this->assertStringContainsString('Unsupported payment method', $response->json('message'));
     }
 
     public function test_checkout_complete_stripe_api_success(): void
     {
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
 
-        Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response([
-                'id' => 'ch_mock_charge_id',
-                'object' => 'charge',
-                'paid' => true,
-            ], 200),
-        ]);
+        $this->fakeSuccessfulPaymentIntent();
 
         $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_mock_token_id',
+            'stripe_payment_method' => 'pm_mock_token_id',
         ]);
 
         $response->assertStatus(200);
         $response->assertJsonPath('success', true);
 
         Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
-            return $request->url() === 'https://api.stripe.com/v1/charges' &&
-                $request['source'] === 'tok_mock_token_id' &&
+            return $request->url() === 'https://api.stripe.com/v1/payment_intents' &&
+                $request['payment_method'] === 'pm_mock_token_id' &&
                 (int) $request['amount'] === 10000;
         });
     }
@@ -155,7 +149,7 @@ class CheckoutTest extends TestCase
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
 
         Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response([
+            'https://api.stripe.com/v1/payment_intents' => Http::response([
                 'error' => [
                     'message' => 'Your card has insufficient funds.',
                     'type' => 'card_error',
@@ -165,7 +159,7 @@ class CheckoutTest extends TestCase
 
         $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_mock_token_id',
+            'stripe_payment_method' => 'pm_mock_token_id',
         ]);
 
         $response->assertStatus(400);
@@ -188,27 +182,33 @@ class CheckoutTest extends TestCase
         $this->app->instance(\WebbyCrown\WebbyCommerceStatamic\Orders\EntryOrderRepository::class, $orders);
 
         Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response([
-                'id' => 'ch_orphan',
-                'object' => 'charge',
-                'paid' => true,
-            ], 200),
+            'https://api.stripe.com/v1/payment_intents' => function ($request) {
+                return Http::response([
+                    'id' => 'pi_orphan',
+                    'object' => 'payment_intent',
+                    'status' => 'succeeded',
+                    'amount' => (int) $request['amount'],
+                    'currency' => (string) $request['currency'],
+                    'client_secret' => 'pi_orphan_secret',
+                    'latest_charge' => 'ch_orphan',
+                ], 200);
+            },
             'https://api.stripe.com/v1/refunds' => Http::response([
                 'id' => 're_orphan',
                 'object' => 'refund',
-                'charge' => 'ch_orphan',
+                'payment_intent' => 'pi_orphan',
             ], 200),
         ]);
 
         $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_mock_token_id',
+            'stripe_payment_method' => 'pm_mock_token_id',
         ]);
 
         $response->assertStatus(500);
         Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
             return $request->url() === 'https://api.stripe.com/v1/refunds'
-                && $request['charge'] === 'ch_orphan';
+                && $request['payment_intent'] === 'pi_orphan';
         });
     }
 
@@ -315,23 +315,17 @@ class CheckoutTest extends TestCase
         ]);
 
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
-        Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response([
-                'id' => 'ch_coupon',
-                'object' => 'charge',
-                'paid' => true,
-            ], 200),
-        ]);
+        $this->fakeSuccessfulPaymentIntent();
 
         $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_mock_token_id',
+            'stripe_payment_method' => 'pm_mock_token_id',
         ]);
 
         $response->assertOk();
         $response->assertJsonPath('success', true);
         Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
-            return $request->url() === 'https://api.stripe.com/v1/charges'
+            return $request->url() === 'https://api.stripe.com/v1/payment_intents'
                 && (int) $request['amount'] === 9000;
         });
     }
@@ -345,25 +339,15 @@ class CheckoutTest extends TestCase
         ]);
 
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
-        Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response([
-                'id' => 'ch_capped',
-                'object' => 'charge',
-                'paid' => true,
-            ], 200),
-        ]);
+        Http::fake();
 
         $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_mock_token_id',
+            'stripe_payment_method' => 'pm_mock_token_id',
         ]);
 
         $response->assertOk();
-        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
-            return $request->url() === 'https://api.stripe.com/v1/charges'
-                && (int) $request['amount'] >= 0
-                && (int) $request['amount'] === 0;
-        });
+        Http::assertNothingSent();
     }
 
     public function test_product_listing_does_not_publish_cost_price(): void
@@ -412,7 +396,7 @@ class CheckoutTest extends TestCase
 
         $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_mock_token_id',
+            'stripe_payment_method' => 'pm_mock_token_id',
         ]);
 
         $response->assertStatus(400);
@@ -422,20 +406,14 @@ class CheckoutTest extends TestCase
     public function test_stripe_charge_uses_minor_units_for_usd_and_jpy(): void
     {
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
-        Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response([
-                'id' => 'ch_currency',
-                'object' => 'charge',
-                'paid' => true,
-            ], 200),
-        ]);
+        $this->fakeSuccessfulPaymentIntent();
 
         $this->setCartTotal(10);
         $this->setStoreCurrency('USD');
 
         $usd = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_usd',
+            'stripe_payment_method' => 'pm_usd',
         ]);
         $usd->assertOk();
 
@@ -464,13 +442,13 @@ class CheckoutTest extends TestCase
 
         $jpy = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_jpy',
+            'stripe_payment_method' => 'pm_jpy',
         ]);
         $jpy->assertOk();
 
         $payloads = [];
         Http::assertSent(function (\Illuminate\Http\Client\Request $request) use (&$payloads) {
-            if ($request->url() === 'https://api.stripe.com/v1/charges') {
+            if ($request->url() === 'https://api.stripe.com/v1/payment_intents') {
                 $payloads[] = [
                     'amount' => (int) $request['amount'],
                     'currency' => $request['currency'],
@@ -498,12 +476,7 @@ class CheckoutTest extends TestCase
         ]]);
 
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
-        Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response([
-                'id' => 'ch_should_not_ship',
-                'paid' => true,
-            ], 200),
-        ]);
+        $this->fakeSuccessfulPaymentIntent();
 
         Session::put('checkout.address.billing_address', [
             'street' => '1 King St',
@@ -515,7 +488,7 @@ class CheckoutTest extends TestCase
 
         $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_mock_token_id',
+            'stripe_payment_method' => 'pm_mock_token_id',
         ]);
 
         $response->assertStatus(422);
@@ -535,16 +508,11 @@ class CheckoutTest extends TestCase
         ]]);
 
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
-        Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response([
-                'id' => 'ch_should_not_ship',
-                'paid' => true,
-            ], 200),
-        ]);
+        $this->fakeSuccessfulPaymentIntent();
 
         $payload = $this->bankTransferCheckout();
         $payload['payment_method'] = 'stripe';
-        $payload['stripe_token'] = 'tok_mock_token_id';
+        $payload['stripe_payment_method'] = 'pm_mock_token_id';
         $payload['billing_address']['postal_code'] = '90210';
 
         $response = $this->post(route('shop.checkout.process'), $payload);
@@ -566,24 +534,18 @@ class CheckoutTest extends TestCase
         ]]);
 
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
-        Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response([
-                'id' => 'ch_free_ship',
-                'object' => 'charge',
-                'paid' => true,
-            ], 200),
-        ]);
+        $this->fakeSuccessfulPaymentIntent();
 
         $this->setCartTotal(10);
 
         $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_free',
+            'stripe_payment_method' => 'pm_free',
         ]);
 
         $response->assertOk();
         Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
-            return $request->url() === 'https://api.stripe.com/v1/charges'
+            return $request->url() === 'https://api.stripe.com/v1/payment_intents'
                 && (int) $request['amount'] === 1000;
         });
     }
@@ -594,7 +556,7 @@ class CheckoutTest extends TestCase
 
         $valid = $this->bankTransferCheckout();
         $valid['payment_method'] = 'stripe';
-        $valid['stripe_token'] = 'tok_mock_token_id';
+        $valid['stripe_payment_method'] = 'pm_mock_token_id';
         $valid['card_number'] = '4242424242424242';
         $valid['card_cvv'] = '123';
 
@@ -625,21 +587,289 @@ class CheckoutTest extends TestCase
         $this->assertTrue($held->get());
 
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
-        Http::fake([
-            'https://api.stripe.com/v1/charges' => Http::response([
-                'id' => 'ch_should_not',
-                'paid' => true,
-            ], 200),
-        ]);
+        $this->fakeSuccessfulPaymentIntent();
 
         $response = $this->postJson(route('shop.checkout.complete'), [
             'payment_method' => 'stripe',
-            'stripe_token' => 'tok_mock_token_id',
+            'stripe_payment_method' => 'pm_mock_token_id',
         ]);
 
         $response->assertStatus(422);
         Http::assertNothingSent();
         $held->release();
+    }
+
+    public function test_authentication_step_does_not_mark_the_order_paid_until_the_intent_succeeds(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+        $intentId = 'pi_auth_'.strtolower(\Illuminate\Support\Str::random(8));
+        Http::fake([
+            'https://api.stripe.com/v1/payment_intents' => function ($request) use ($intentId) {
+                return Http::response([
+                    'id' => $intentId,
+                    'object' => 'payment_intent',
+                    'status' => 'requires_action',
+                    'amount' => (int) $request['amount'],
+                    'currency' => (string) $request['currency'],
+                    'client_secret' => $intentId.'_secret',
+                ], 200);
+            },
+            'https://api.stripe.com/v1/payment_intents/'.$intentId => Http::response([
+                'id' => $intentId,
+                'object' => 'payment_intent',
+                'status' => 'succeeded',
+                'amount' => 10000,
+                'currency' => 'usd',
+                'client_secret' => $intentId.'_secret',
+                'latest_charge' => 'ch_auth',
+            ], 200),
+        ]);
+
+        $pending = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_payment_method' => 'pm_card_authentication',
+        ]);
+
+        $pending->assertOk();
+        $pending->assertJsonPath('success', false);
+        $pending->assertJsonPath('requires_action', true);
+        $pending->assertJsonPath('payment_intent', $intentId);
+        $pending->assertJsonPath('client_secret', $intentId.'_secret');
+        $this->assertNull(\Statamic\Facades\Entry::query()->where('collection', 'orders')->where('payment_intent', $intentId)->first());
+
+        $paid = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'payment_intent' => $intentId,
+        ]);
+
+        $paid->assertOk();
+        $paid->assertJsonPath('success', true);
+        $order = \Statamic\Facades\Entry::query()->where('collection', 'orders')->where('payment_intent', $intentId)->first();
+        $this->assertNotNull($order);
+        $this->assertTrue((bool) $order->get('is_paid'));
+        $this->assertSame('paid', $order->get('payment_status'));
+        $this->assertSame($intentId, $order->get('payment_intent'));
+    }
+
+    public function test_a_succeeded_intent_for_the_wrong_amount_is_not_paid(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+        Http::fake([
+            'https://api.stripe.com/v1/payment_intents/pi_small' => Http::response([
+                'id' => 'pi_small',
+                'status' => 'succeeded',
+                'amount' => 50,
+                'currency' => 'usd',
+            ], 200),
+        ]);
+
+        $response = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'payment_intent' => 'pi_small',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $this->assertNull(\Statamic\Facades\Entry::query()->where('collection', 'orders')->where('payment_intent', 'pi_small')->first());
+    }
+
+    public function test_webhook_route_is_outside_the_web_middleware(): void
+    {
+        $webhook = \Illuminate\Support\Facades\Route::getRoutes()->getByName('shop.checkout.payment.webhook');
+        $checkout = \Illuminate\Support\Facades\Route::getRoutes()->getByName('shop.checkout.complete');
+
+        $this->assertNotNull($webhook);
+        $this->assertNotNull($checkout);
+        $this->assertNotContains('web', $webhook->middleware());
+        $this->assertContains('web', $checkout->middleware());
+    }
+
+    public function test_signed_webhook_marks_the_matching_order_paid(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.webhook_secret', 'whsec_test');
+        $intentId = 'pi_wh_'.strtolower(\Illuminate\Support\Str::random(8));
+        $orderNumber = 'ORD-WH-'.strtoupper(\Illuminate\Support\Str::random(6));
+        \Statamic\Facades\Entry::make()
+            ->collection('orders')
+            ->slug(strtolower($orderNumber))
+            ->published(true)
+            ->data([
+                'title' => $orderNumber,
+                'order_number' => $orderNumber,
+                'payment_intent' => $intentId,
+                'payment_status' => 'pending',
+                'is_paid' => false,
+                'grand_total' => 100,
+                'total' => 100,
+            ])
+            ->save();
+
+        $payload = json_encode([
+            'id' => 'evt_paid',
+            'type' => 'payment_intent.succeeded',
+            'data' => [
+                'object' => [
+                    'id' => $intentId,
+                    'object' => 'payment_intent',
+                    'status' => 'succeeded',
+                    'amount' => 10000,
+                    'currency' => 'usd',
+                    'latest_charge' => 'ch_webhook',
+                    'metadata' => [
+                        'order_number' => $orderNumber,
+                    ],
+                ],
+            ],
+        ]);
+
+        $response = $this->postWebhook($payload, $this->stripeSignature($payload, 'whsec_test'));
+
+        $response->assertOk();
+        $response->assertJsonPath('message', 'Order marked paid.');
+        $order = \Statamic\Facades\Entry::query()->where('collection', 'orders')->where('order_number', $orderNumber)->first();
+        $this->assertTrue((bool) $order->get('is_paid'));
+        $this->assertSame('paid', $order->get('payment_status'));
+        $this->assertSame('ch_webhook', $order->get('charge_id'));
+    }
+
+    public function test_webhook_rejects_a_bad_signature_and_a_mismatched_amount(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.webhook_secret', 'whsec_test');
+        $intentId = 'pi_bad_'.strtolower(\Illuminate\Support\Str::random(8));
+        $orderNumber = 'ORD-BAD-'.strtoupper(\Illuminate\Support\Str::random(6));
+        \Statamic\Facades\Entry::make()
+            ->collection('orders')
+            ->slug(strtolower($orderNumber))
+            ->published(true)
+            ->data([
+                'title' => $orderNumber,
+                'order_number' => $orderNumber,
+                'payment_intent' => $intentId,
+                'payment_status' => 'pending',
+                'is_paid' => false,
+                'grand_total' => 100,
+                'total' => 100,
+            ])
+            ->save();
+
+        $payload = json_encode([
+            'id' => 'evt_bad',
+            'type' => 'payment_intent.succeeded',
+            'data' => [
+                'object' => [
+                    'id' => $intentId,
+                    'object' => 'payment_intent',
+                    'status' => 'succeeded',
+                    'amount' => 10000,
+                    'currency' => 'usd',
+                ],
+            ],
+        ]);
+
+        $unsigned = $this->postWebhook($payload, 't='.time().',v1=not-a-real-signature');
+        $unsigned->assertStatus(401);
+        $order = \Statamic\Facades\Entry::query()->where('collection', 'orders')->where('order_number', $orderNumber)->first();
+        $this->assertFalse((bool) $order->get('is_paid'));
+
+        $wrongAmount = json_encode([
+            'id' => 'evt_amount',
+            'type' => 'payment_intent.succeeded',
+            'data' => [
+                'object' => [
+                    'id' => $intentId,
+                    'object' => 'payment_intent',
+                    'status' => 'succeeded',
+                    'amount' => 50,
+                    'currency' => 'usd',
+                ],
+            ],
+        ]);
+        $mismatch = $this->postWebhook($wrongAmount, $this->stripeSignature($wrongAmount, 'whsec_test'));
+        $mismatch->assertStatus(422);
+        $order = \Statamic\Facades\Entry::query()->where('collection', 'orders')->where('order_number', $orderNumber)->first();
+        $this->assertFalse((bool) $order->get('is_paid'));
+        $this->assertSame('pending', $order->get('payment_status'));
+    }
+
+    public function test_failed_webhook_marks_an_unpaid_order_failed_and_leaves_a_paid_order_alone(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.webhook_secret', 'whsec_test');
+        $intentId = 'pi_fail_'.strtolower(\Illuminate\Support\Str::random(8));
+        $orderNumber = 'ORD-FAIL-'.strtoupper(\Illuminate\Support\Str::random(6));
+        \Statamic\Facades\Entry::make()
+            ->collection('orders')
+            ->slug(strtolower($orderNumber))
+            ->published(true)
+            ->data([
+                'title' => $orderNumber,
+                'order_number' => $orderNumber,
+                'payment_intent' => $intentId,
+                'payment_status' => 'pending',
+                'is_paid' => false,
+                'grand_total' => 100,
+                'total' => 100,
+            ])
+            ->save();
+
+        $failed = json_encode([
+            'id' => 'evt_failed',
+            'type' => 'payment_intent.payment_failed',
+            'data' => [
+                'object' => [
+                    'id' => $intentId,
+                    'object' => 'payment_intent',
+                    'status' => 'requires_payment_method',
+                    'amount' => 10000,
+                    'currency' => 'usd',
+                ],
+            ],
+        ]);
+        $this->postWebhook($failed, $this->stripeSignature($failed, 'whsec_test'))->assertOk();
+        $order = \Statamic\Facades\Entry::query()->where('collection', 'orders')->where('order_number', $orderNumber)->first();
+        $this->assertFalse((bool) $order->get('is_paid'));
+        $this->assertSame('failed', $order->get('payment_status'));
+
+        $order->set('is_paid', true)->set('payment_status', 'paid')->save();
+        $again = json_encode([
+            'id' => 'evt_failed_again',
+            'type' => 'payment_intent.payment_failed',
+            'data' => [
+                'object' => [
+                    'id' => $intentId,
+                    'object' => 'payment_intent',
+                    'status' => 'requires_payment_method',
+                ],
+            ],
+        ]);
+        $this->postWebhook($again, $this->stripeSignature($again, 'whsec_test'))->assertOk();
+        $order = \Statamic\Facades\Entry::query()->where('collection', 'orders')->where('order_number', $orderNumber)->first();
+        $this->assertTrue((bool) $order->get('is_paid'));
+        $this->assertSame('paid', $order->get('payment_status'));
+    }
+
+    private function stripeSignature(string $payload, string $secret): string
+    {
+        $timestamp = time();
+        $signature = hash_hmac('sha256', $timestamp.'.'.$payload, $secret);
+
+        return 't='.$timestamp.',v1='.$signature;
+    }
+
+    private function postWebhook(string $payload, string $signature)
+    {
+        return $this->call(
+            'POST',
+            '/shop/payment/webhook',
+            [],
+            [],
+            [],
+            [
+                'CONTENT_TYPE' => 'application/json',
+                'HTTP_ACCEPT' => 'application/json',
+                'HTTP_STRIPE_SIGNATURE' => $signature,
+            ],
+            $payload
+        );
     }
 
     private function setCartTotal(float $price): void

@@ -31,6 +31,16 @@ class EntryOrderRepository
         return Order::fromEntry($entry);
     }
 
+    public function findByPaymentIntent(string $paymentIntent): ?Order
+    {
+        $entry = Entry::query()
+            ->where('collection', $this->collection)
+            ->where('payment_intent', $paymentIntent)
+            ->first();
+
+        return $entry ? Order::fromEntry($entry) : null;
+    }
+
     public function findByOrderNumber(string $orderNumber): ?Order
     {
         $entry = Entry::query()

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Card checkout uses Stripe Payment Intents. The order is marked paid only after the intent succeeds, including when the card has to complete authentication.
+- `POST /shop/payment/webhook` is registered outside the `web` middleware. A verified `payment_intent.succeeded` event updates the matching order's payment status.
+
+### Removed
+
+- PayPal is not offered in settings, checkout, or the docs.
+- The unused WebbyCommerce Control Panel permission names are no longer registered. Statamic collection permissions control who can open orders and customers.
+
 ## 1.1.5 — 2026-10-27
 
 ### Fixed

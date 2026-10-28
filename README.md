@@ -8,7 +8,7 @@ A Statamic 5 add-on for managing products, orders, customers, coupons, taxes, sh
 - Shipping methods live in the **`webbycommerce_settings` Globals** (`shipping_locations`), not a separate collection
 - Storefront API under `/shop` for cart, checkout, coupons, wishlist, and shipping options
 - Control Panel menu for WebbyCommerce collections and settings
-- Stripe charging when `STRIPE_SECRET_KEY` is set; bank transfer creates **unpaid pending** orders
+- Stripe Payment Intents when `STRIPE_SECRET_KEY` is set; bank transfer creates **unpaid pending** orders
 
 ## Requirements
 
@@ -31,7 +31,7 @@ That constraint resolves `webbycrown/webbycommerce-statamic` `^1.1`, including `
 
 Orders and customers are saved as flat-file entries under `content/collections/orders` and `content/collections/customers`. Those files include names, email addresses, and addresses. Keep them out of Git.
 
-Control Panel access follows Statamic's own collection permissions. The add-on also registers WebbyCommerce permission names, and those names are not checked.
+Control Panel access follows Statamic's collection permissions. A role that can view products cannot open orders or customers unless that role also has those collection permissions.
 
 ### Local path development
 
@@ -66,24 +66,28 @@ php please stache:refresh
 
 ## Payments (important)
 
-WebbyCommerce does **not** mark card or PayPal checkouts as paid unless a charge is verified.
+WebbyCommerce does **not** mark a card checkout as paid unless the Stripe PaymentIntent status is `succeeded`. PayPal is not a payment method.
 
 | Method | Behaviour |
 | --- | --- |
-| **Stripe** (`stripe` / `credit_card`) | Requires `STRIPE_SECRET_KEY` and a client-created **`stripe_token`** (Stripe.js / Elements). Card numbers and CVVs must never be posted to your server. Charge must succeed before `is_paid` / `payment_status: paid`. The amount uses that currency's minor units: dollars are sent as cents, and yen are sent as yen. The currency is the Control Panel currency. This Charges API flow does not support 3D Secure, so cards that require Strong Customer Authentication (common in Europe) can be declined. If the charge succeeds and the order still cannot be saved, WebbyCommerce refunds that charge and writes the charge id to the log. |
-| **PayPal** | Not implemented for live capture in this release. Checkout returns an error instead of faking payment. |
+| **Stripe** (`stripe` / `credit_card`) | Requires `STRIPE_SECRET_KEY`. The browser confirms the card with Stripe.js and sends a PaymentMethod id (`pm_...`) or, after authentication, a PaymentIntent id (`pi_...`). Card numbers and CVVs must never be posted to your server. If the intent needs Strong Customer Authentication, checkout returns `requires_action` and `client_secret` and does **not** mark the order paid. The browser finishes that step with `stripe.confirmCardPayment`, then sends the PaymentIntent id. The order is paid only after Stripe reports `succeeded` for the same amount and currency. Amounts use that currency's minor units: dollars are sent as cents, and yen are sent as yen. The currency is the Control Panel currency. If the payment succeeds and the order still cannot be saved, WebbyCommerce refunds that PaymentIntent and writes its id to the log. |
 | **Bank transfer** | Order is created as **pending / unpaid** for manual reconciliation. |
-| **Webhooks** | `/shop/payment/webhook` is a placeholder. When `STRIPE_WEBHOOK_SECRET` is set it checks `Stripe-Signature` and returns. It does not update the order. The route uses the `web` middleware, so Stripe's POST is rejected by CSRF protection unless that route is excluded. |
+| **Webhooks** | `POST /shop/payment/webhook` is outside the `web` middleware, so Laravel's CSRF protection does not reject Stripe. When `STRIPE_WEBHOOK_SECRET` is set, the route checks `Stripe-Signature`. A verified `payment_intent.succeeded` event marks the matching order paid when the amount and currency match. `payment_intent.payment_failed` marks an unpaid order failed. A paid order is not changed to unpaid. |
 
 Put secrets in `.env` only. Do not store secret keys in Globals (they are often committed with content).
 
-### Stripe.js token (required for card checkout)
+### Stripe.js PaymentIntent (required for card checkout)
 
-Collect card details only in the browser with [Stripe.js](https://stripe.com/docs/js). Send the resulting token to checkout:
+Collect card details only in the browser with [Stripe.js](https://stripe.com/docs/js). Create a PaymentMethod, then confirm the PaymentIntent when Stripe asks for authentication:
 
 ```js
-// after Stripe.js createToken / createPaymentMethod → token.id
-fetch('/shop/checkout/complete', {
+const { paymentMethod, error } = await stripe.createPaymentMethod({
+  type: 'card',
+  card: cardElement,
+});
+if (error) throw error;
+
+const started = await fetch('/shop/checkout/complete', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -92,12 +96,32 @@ fetch('/shop/checkout/complete', {
   },
   body: JSON.stringify({
     payment_method: 'stripe',
-    stripe_token: token.id,
+    stripe_payment_method: paymentMethod.id,
   }),
 });
+const body = await started.json();
+
+if (body.requires_action) {
+  const confirmed = await stripe.confirmCardPayment(body.client_secret);
+  if (confirmed.error) throw confirmed.error;
+  await fetch('/shop/checkout/complete', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-TOKEN': csrfToken,
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      payment_method: 'stripe',
+      payment_intent: confirmed.paymentIntent.id,
+    }),
+  });
+}
 ```
 
-Requests that include `card_number` or `card_cvv` are rejected.
+Requests that include `card_number` or `card_cvv` are rejected. Stripe's 3D Secure test card `4000002500003155` returns `requires_action` until `confirmCardPayment` succeeds.
+
+Point Stripe at `POST /shop/payment/webhook` and set `STRIPE_WEBHOOK_SECRET` to the endpoint signing secret. `stripe listen --forward-to https://example.com/shop/payment/webhook` is the local check: a signed `payment_intent.succeeded` event changes that order's `payment_status` to `paid`.
 
 ```dotenv
 WEBBYCOMMERCE_CURRENCY=USD
@@ -131,7 +155,7 @@ Base prefix: `/shop`
 | POST | `/shop/checkout/complete` | Complete checkout (AJAX) |
 | GET | `/shop/checkout/success/{orderNumber}` | Order success page |
 | GET/POST | `/shop/payment/callback` | Payment callback endpoint |
-| POST | `/shop/payment/webhook` | Placeholder. Verifies a Stripe signature, then does not update the order. CSRF on the `web` middleware rejects Stripe unless the route is excluded. |
+| POST | `/shop/payment/webhook` | Stripe webhook. No CSRF middleware. A verified `payment_intent.succeeded` event marks the matching order paid. |
 | GET | `/shop/payment/redirect` | Payment redirect endpoint |
 | GET | `/shop/search` | Product search |
 
@@ -195,7 +219,7 @@ Community support via GitHub Issues unless you have a separate WebbyCrown suppor
 
 | File | Purpose |
 | --- | --- |
-| `src/ServiceProvider.php` | Routes, permissions, config merge |
+| `src/ServiceProvider.php` | Routes and config merge |
 | `src/Install/StoreInstaller.php` | Collections, blueprints, and settings created by `webbycommerce:install` |
 | `src/Commands/InstallWebbyCommerce.php` | Install command |
 | `routes/shop.php` | Storefront routes |

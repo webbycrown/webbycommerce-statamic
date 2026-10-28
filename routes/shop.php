@@ -33,7 +33,6 @@ Route::prefix('checkout')->group(function () {
 });
 
 Route::match(['get', 'post'], '/payment/callback', [CheckoutController::class, 'paymentCallback'])->name('checkout.payment.callback');
-Route::post('/payment/webhook', [CheckoutController::class, 'paymentWebhook'])->name('checkout.payment.webhook');
 Route::get('/payment/redirect', [CheckoutController::class, 'paymentRedirect'])->name('checkout.payment.redirect');
 
 Route::get('/search', [ShopProductController::class, 'search'])->name('search');

@@ -121,13 +121,6 @@ return [
                 'redirect_url' => env('STRIPE_REDIRECT_URL', null),
                 'callback_url' => env('STRIPE_CALLBACK_URL', null),
             ],
-            'paypal' => [
-                'client_id' => env('PAYPAL_CLIENT_ID'),
-                'secret' => env('PAYPAL_SECRET'),
-                'webhook_url' => env('PAYPAL_WEBHOOK_URL', null),
-                'redirect_url' => env('PAYPAL_REDIRECT_URL', null),
-                'callback_url' => env('PAYPAL_CALLBACK_URL', null),
-            ],
         ],
     ],
 

@@ -123,7 +123,6 @@ tabs:
               instructions: 'The primary gateway used for processing payments.'
               options:
                 stripe: Stripe
-                paypal: PayPal
                 cod: 'Cash on Delivery'
               default: stripe
               required: true
@@ -137,16 +136,6 @@ tabs:
               type: text
               display: 'Publishable Key'
               instructions: 'Your Stripe publishable (public) key.'
-      -
-        display: 'PayPal Settings'
-        instructions: 'Client ID only. Set PAYPAL_SECRET in .env. Live PayPal capture is not shipped in this release.'
-        fields:
-          -
-            handle: paypal_client_id
-            field:
-              type: text
-              display: 'Client ID'
-              instructions: 'Your PayPal client ID (public).'
 
   orders:
     display: Orders

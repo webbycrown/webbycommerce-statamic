@@ -19,8 +19,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\CP\Nav;
-use Statamic\Facades\Permission;
 use Statamic\Statamic;
+use WebbyCrown\WebbyCommerceStatamic\Http\Controllers\Shop\CheckoutController;
 use Statamic\Providers\AddonServiceProvider;
 
 class ServiceProvider extends AddonServiceProvider
@@ -104,7 +104,6 @@ class ServiceProvider extends AddonServiceProvider
             __DIR__.'/../resources/views' => resource_path('views/vendor/webbycommerce'),
         ], 'webbycommerce-views');
 
-        $this->registerPermissions();
         $this->registerRoutes();
         $this->syncGlobalPaymentSettings();
         $this->createNavItems();
@@ -136,21 +135,16 @@ class ServiceProvider extends AddonServiceProvider
 
             $defaultGateway = $variables->get('payment_gateway');
             $stripePublishableKey = $variables->get('stripe_publishable_key');
-            $paypalClientId = $variables->get('paypal_client_id');
 
-            // Secrets (Stripe secret, webhook secret, PayPal secret) must come from
+            // Secrets (Stripe secret and webhook secret) must come from
             // environment / config — never from Globals committed to content/.
 
-            if ($defaultGateway) {
+            if (is_string($defaultGateway) && in_array($defaultGateway, ['stripe', 'cod'], true)) {
                 config(['webbycommerce.payment.default_gateway' => $defaultGateway]);
             }
 
             if ($stripePublishableKey) {
                 config(['webbycommerce.payment.gateways.stripe.publishable_key' => $stripePublishableKey]);
-            }
-
-            if ($paypalClientId) {
-                config(['webbycommerce.payment.gateways.paypal.client_id' => $paypalClientId]);
             }
 
             $storeName = $variables->get('store_name');
@@ -262,50 +256,16 @@ class ServiceProvider extends AddonServiceProvider
         self::$navRegistered = true;
     }
 
-    protected function registerPermissions()
-    {
-        Permission::register('view webbycommerce products')
-            ->label('View WebbyCommerce Products');
-
-        Permission::register('edit webbycommerce products')
-            ->label('Edit WebbyCommerce Products');
-
-        Permission::register('create webbycommerce products')
-            ->label('Create WebbyCommerce Products');
-
-        Permission::register('delete webbycommerce products')
-            ->label('Delete WebbyCommerce Products');
-
-        Permission::register('view webbycommerce orders')
-            ->label('View WebbyCommerce Orders');
-
-        Permission::register('edit webbycommerce orders')
-            ->label('Edit WebbyCommerce Orders');
-
-        Permission::register('view webbycommerce customers')
-            ->label('View WebbyCommerce Customers');
-
-        Permission::register('edit webbycommerce customers')
-            ->label('Edit WebbyCommerce Customers');
-
-        Permission::register('view webbycommerce coupons')
-            ->label('View WebbyCommerce Coupons');
-
-        Permission::register('edit webbycommerce coupons')
-            ->label('Edit WebbyCommerce Coupons');
-
-        Permission::register('create webbycommerce coupons')
-            ->label('Create WebbyCommerce Coupons');
-
-        Permission::register('delete webbycommerce coupons')
-            ->label('Delete WebbyCommerce Coupons');
-    }
-
     protected function registerRoutes()
     {
         Route::middleware(['web'])
             ->prefix('shop')
             ->name('shop.')
             ->group(__DIR__.'/../routes/shop.php');
+
+        // Stripe posts this with no session cookie. It must not use the web
+        // middleware, or CSRF protection rejects the event before it is read.
+        Route::post('/shop/payment/webhook', [CheckoutController::class, 'paymentWebhook'])
+            ->name('shop.checkout.payment.webhook');
     }
 }

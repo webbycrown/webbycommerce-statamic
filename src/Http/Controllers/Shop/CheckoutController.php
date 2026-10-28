@@ -7,6 +7,8 @@ use WebbyCrown\WebbyCommerceStatamic\Coupons\EntryCouponRepository;
 use WebbyCrown\WebbyCommerceStatamic\Customers\EntryCustomerRepository;
 use WebbyCrown\WebbyCommerceStatamic\Orders\EntryOrderRepository;
 use WebbyCrown\WebbyCommerceStatamic\Helpers\CurrencyHelper;
+use WebbyCrown\WebbyCommerceStatamic\Orders\Order;
+use WebbyCrown\WebbyCommerceStatamic\Payments\StripeGateway;
 use WebbyCrown\WebbyCommerceStatamic\Shipping\ShippingManager;
 use WebbyCrown\WebbyCommerceStatamic\Tax\TaxManager;
 use Illuminate\Http\JsonResponse;
@@ -80,7 +82,8 @@ class CheckoutController
             'shipping_method',
             'bank_sender_name',
             'bank_transaction_ref',
-            'paypal_email',
+            'stripe_payment_method',
+            'payment_intent',
         ]));
     }
 
@@ -296,9 +299,8 @@ class CheckoutController
             ];
 
             if (in_array($request->input('payment_method'), ['credit_card', 'stripe'])) {
-                $rules['stripe_token'] = 'required|string|max:255';
-            } elseif ($request->input('payment_method') === 'paypal') {
-                $rules['paypal_email'] = 'required|email|max:255';
+                $rules['stripe_payment_method'] = 'nullable|string|max:255';
+                $rules['payment_intent'] = 'nullable|string|max:255';
             } elseif ($request->input('payment_method') === 'bank_transfer') {
                 $rules['bank_sender_name'] = 'required|string|max:255';
                 $rules['bank_transaction_ref'] = 'nullable|string|max:255';
@@ -310,7 +312,16 @@ class CheckoutController
                 && ($request->filled('card_number') || $request->filled('card_cvv'))) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Card details must not be sent to the server. Create a Stripe.js token and send stripe_token only.',
+                    'message' => 'Card details must not be sent to the server. Confirm the card with Stripe.js and send a PaymentMethod or PaymentIntent only.',
+                ], 422);
+            }
+
+            if (in_array($paymentData['payment_method'] ?? '', ['credit_card', 'stripe'], true)
+                && empty($paymentData['stripe_payment_method'])
+                && empty($paymentData['payment_intent'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'A Stripe PaymentMethod or PaymentIntent is required. Card numbers must not be posted to the server.',
                 ], 422);
             }
 
@@ -450,6 +461,18 @@ class CheckoutController
                 $address['email']
             );
 
+            if (! empty($paymentResult['requires_action'])) {
+                $this->releaseHeldStock();
+
+                return response()->json([
+                    'success' => false,
+                    'requires_action' => true,
+                    'payment_intent' => $paymentResult['payment_intent'] ?? null,
+                    'client_secret' => $paymentResult['client_secret'] ?? null,
+                    'message' => $paymentResult['message'],
+                ]);
+            }
+
             if (! $paymentResult['ok']) {
                 $this->releaseHeldStock();
 
@@ -517,6 +540,8 @@ class CheckoutController
                         'shipping_address_data' => $shippingAddress,
                         'payment_method' => $paymentMethod,
                         'is_paid' => $isPaid,
+                        'payment_intent' => $paymentResult['payment_intent'] ?? null,
+                        'charge_id' => $paymentResult['charge_id'] ?? null,
                     ])
                     ->published(true);
 
@@ -636,11 +661,10 @@ class CheckoutController
             }
 
             if (in_array($request->input('payment_method'), ['credit_card', 'stripe'])) {
-                $rules['stripe_token'] = 'required|string|max:255';
+                $rules['stripe_payment_method'] = 'nullable|string|max:255';
+                $rules['payment_intent'] = 'nullable|string|max:255';
             } elseif ($request->input('payment_method') === 'bank_transfer') {
                 $rules['bank_sender_name'] = 'required|string|max:255';
-            } elseif ($request->input('payment_method') === 'paypal') {
-                $rules['paypal_email'] = 'required|email|max:255';
             }
 
             $validated = $request->validate($rules);
@@ -648,7 +672,14 @@ class CheckoutController
             if (in_array($validated['payment_method'] ?? '', ['credit_card', 'stripe'], true)
                 && ($request->filled('card_number') || $request->filled('card_cvv'))) {
                 return $this->backWithCheckoutInput()->with('error',
-                    'Card details must not be sent to the server. Create a Stripe.js token and send stripe_token only.');
+                    'Card details must not be sent to the server. Confirm the card with Stripe.js and send a PaymentMethod or PaymentIntent only.');
+            }
+
+            if (in_array($validated['payment_method'] ?? '', ['credit_card', 'stripe'], true)
+                && empty($validated['stripe_payment_method'])
+                && empty($validated['payment_intent'])) {
+                return $this->backWithCheckoutInput()->with('error',
+                    'A Stripe PaymentMethod or PaymentIntent is required. Card numbers must not be posted to the server.');
             }
 
             // Store address in session for tax engine
@@ -777,6 +808,17 @@ class CheckoutController
                 $addressData['email']
             );
 
+            if (! empty($paymentResult['requires_action'])) {
+                $this->releaseHeldStock();
+
+                return $this->backWithCheckoutInput()
+                    ->with('webbycommerce_requires_action', [
+                        'payment_intent' => $paymentResult['payment_intent'] ?? null,
+                        'client_secret' => $paymentResult['client_secret'] ?? null,
+                    ])
+                    ->with('error', $paymentResult['message'] ?? 'Additional authentication is required.');
+            }
+
             if (! $paymentResult['ok']) {
                 $this->releaseHeldStock();
 
@@ -838,6 +880,8 @@ class CheckoutController
                     'shipping_address_data' => $shippingAddress,
                     'payment_method' => $paymentMethod,
                     'is_paid' => $isPaid,
+                    'payment_intent' => $paymentResult['payment_intent'] ?? null,
+                    'charge_id' => $paymentResult['charge_id'] ?? null,
                 ])
                 ->published(true);
 
@@ -1250,40 +1294,39 @@ class CheckoutController
 
     public function paymentWebhook(Request $request): JsonResponse
     {
-        $gateway = $request->input('gateway', config('webbycommerce.payment.default_gateway'));
+        $gateway = new StripeGateway;
+        $verified = $gateway->verifiedEvent($request->getContent(), $request->header('Stripe-Signature'));
 
-        if ($gateway === 'stripe' || ($gateway === null && config('webbycommerce.payment.default_gateway') === 'stripe')) {
-            $secret = config('webbycommerce.payment.gateways.stripe.webhook_secret');
-            $signature = $request->header('Stripe-Signature');
+        if (! $verified['ok']) {
+            return response()->json([
+                'success' => false,
+                'message' => $verified['message'],
+            ], $verified['http_status'] ?? 400);
+        }
 
-            if (! $secret) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Stripe webhook secret is not configured.',
-                ], 503);
-            }
+        $event = $verified['event'];
+        $type = (string) ($event['type'] ?? '');
+        $intent = $event['data']['object'] ?? null;
 
-            if (! $signature || ! $this->verifyStripeWebhookSignature($request->getContent(), $signature, $secret)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invalid webhook signature.',
-                ], 401);
-            }
-
-            Log::info('Stripe payment webhook verified', [
-                'gateway' => 'stripe',
-            ]);
-
+        if (! is_array($intent)) {
             return response()->json([
                 'success' => true,
                 'message' => 'Webhook received',
             ]);
         }
 
+        if ($type === 'payment_intent.succeeded') {
+            return $this->markOrderPaidFromWebhook($intent);
+        }
+
+        if ($type === 'payment_intent.payment_failed') {
+            return $this->markOrderFailedFromWebhook($intent);
+        }
+
         return response()->json([
-            'success' => false,
-            'message' => 'Webhook verification is not implemented for this gateway.',
-        ], 501);
+            'success' => true,
+            'message' => 'Webhook received',
+        ]);
     }
 
     public function paymentCallback(Request $request)
@@ -1337,16 +1380,6 @@ class CheckoutController
             return $pending;
         }
 
-        if ($paymentMethod === 'paypal') {
-            return [
-                'ok' => false,
-                'is_paid' => false,
-                'payment_status' => 'pending',
-                'message' => 'PayPal capture is not available in this release. Configure Stripe or use bank transfer for unpaid pending orders.',
-                'http_status' => 422,
-            ];
-        }
-
         if (! in_array($paymentMethod, ['credit_card', 'stripe'], true)) {
             return [
                 'ok' => false,
@@ -1357,157 +1390,146 @@ class CheckoutController
             ];
         }
 
-        $stripeSecret = config('webbycommerce.payment.gateways.stripe.secret_key');
-
-        if (! $stripeSecret) {
-            return [
-                'ok' => false,
-                'is_paid' => false,
-                'payment_status' => 'pending',
-                'message' => 'Stripe is not configured. Set STRIPE_SECRET_KEY in your environment. Orders are not marked paid without a verified charge.',
-                'http_status' => 422,
-            ];
-        }
-
-        $tokenId = $paymentData['stripe_token'] ?? null;
-
-        if (! $tokenId) {
-            return [
-                'ok' => false,
-                'is_paid' => false,
-                'payment_status' => 'pending',
-                'message' => 'A Stripe.js stripe_token is required. Card numbers must not be posted to the server.',
-                'http_status' => 422,
-            ];
-        }
-
-        try {
-            $chargeResponse = \Illuminate\Support\Facades\Http::asForm()
-                ->withBasicAuth($stripeSecret, '')
-                ->post('https://api.stripe.com/v1/charges', [
-                    'amount' => CurrencyHelper::stripeAmount($total),
-                    'currency' => CurrencyHelper::stripeCurrency(),
-                    'source' => $tokenId,
-                    'description' => 'Order '.$orderNumber,
-                    'receipt_email' => $customerEmail,
-                ]);
-
-            if ($chargeResponse->failed()) {
-                $errorMsg = $chargeResponse->json()['error']['message'] ?? 'Stripe charge failed.';
-
-                return [
-                    'ok' => false,
-                    'is_paid' => false,
-                    'payment_status' => 'pending',
-                    'message' => $errorMsg,
-                    'http_status' => 400,
-                ];
-            }
-
-            return [
-                'ok' => true,
-                'is_paid' => true,
-                'payment_status' => 'paid',
-                'charge_id' => $chargeResponse->json('id'),
-                'message' => null,
-                'http_status' => 200,
-            ];
-        } catch (\Exception $stripeEx) {
-            Log::error('Stripe API payment failed: '.$stripeEx->getMessage());
-
-            return [
-                'ok' => false,
-                'is_paid' => false,
-                'payment_status' => 'pending',
-                'message' => 'Payment processor error. Please try again.',
-                'http_status' => 500,
-            ];
-        }
+        return (new StripeGateway)->resolveCard($paymentData, $total, $orderNumber, $customerEmail);
     }
 
     /**
-     * A charge with no saved order is refunded. The charge id is always logged.
+     * A succeeded payment with no saved order is refunded.
+     *
+     * @param  array<string, mixed>  $paymentResult
      */
     protected function refundUnrecordedCharge(array $paymentResult): void
     {
-        if (! ($paymentResult['is_paid'] ?? false)) {
-            return;
-        }
-
-        $chargeId = $paymentResult['charge_id'] ?? null;
-
-        Log::error('Order was not saved after a successful Stripe charge.', [
-            'charge_id' => $chargeId,
-        ]);
-
-        $secret = config('webbycommerce.payment.gateways.stripe.secret_key');
-
-        if (! $chargeId || ! $secret) {
-            return;
-        }
-
-        try {
-            $refund = \Illuminate\Support\Facades\Http::asForm()
-                ->withBasicAuth($secret, '')
-                ->post('https://api.stripe.com/v1/refunds', [
-                    'charge' => $chargeId,
-                ]);
-
-            if ($refund->failed()) {
-                Log::error('Stripe refund failed after the order could not be saved.', [
-                    'charge_id' => $chargeId,
-                    'status' => $refund->status(),
-                    'body' => $refund->json(),
-                ]);
-
-                return;
-            }
-
-            Log::info('Stripe charge refunded because the order could not be saved.', [
-                'charge_id' => $chargeId,
-                'refund_id' => $refund->json('id'),
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Stripe refund failed after the order could not be saved.', [
-                'charge_id' => $chargeId,
-                'message' => $e->getMessage(),
-            ]);
-        }
+        (new StripeGateway)->refund($paymentResult);
     }
 
     /**
-     * Verify Stripe webhook signatures (v1).
+     * @param  array<string, mixed>  $intent
      */
-    protected function verifyStripeWebhookSignature(string $payload, string $header, string $secret, int $tolerance = 300): bool
+    protected function markOrderPaidFromWebhook(array $intent): JsonResponse
     {
-        $parts = [];
-        foreach (explode(',', $header) as $item) {
-            [$k, $v] = array_pad(explode('=', trim($item), 2), 2, null);
-            if ($k && $v !== null) {
-                $parts[$k][] = $v;
-            }
+        $order = $this->orderForIntent($intent);
+
+        if (! $order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No matching order.',
+            ], 404);
         }
 
-        $timestamp = $parts['t'][0] ?? null;
-        $signatures = $parts['v1'] ?? [];
-
-        if (! $timestamp || empty($signatures)) {
-            return false;
+        if ($order->isPaid() && $order->paymentStatus() === 'paid') {
+            return response()->json([
+                'success' => true,
+                'message' => 'Order already paid.',
+            ]);
         }
 
-        if (abs(time() - (int) $timestamp) > $tolerance) {
-            return false;
+        $check = $this->intentMatchesOrder($order, $intent);
+
+        if (! $check['ok']) {
+            return response()->json([
+                'success' => false,
+                'message' => $check['message'],
+            ], 422);
         }
 
-        $expected = hash_hmac('sha256', $timestamp.'.'.$payload, $secret);
+        $this->writeOrderPayment($order, $intent, true);
 
-        foreach ($signatures as $signature) {
-            if (hash_equals($expected, $signature)) {
-                return true;
-            }
+        return response()->json([
+            'success' => true,
+            'message' => 'Order marked paid.',
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $intent
+     */
+    protected function markOrderFailedFromWebhook(array $intent): JsonResponse
+    {
+        $order = $this->orderForIntent($intent);
+
+        if (! $order || ($order->isPaid() && $order->paymentStatus() === 'paid')) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Webhook received',
+            ]);
         }
 
-        return false;
+        $this->writeOrderPayment($order, $intent, false);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order payment marked failed.',
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $intent
+     */
+    protected function orderForIntent(array $intent): ?Order
+    {
+        $id = isset($intent['id']) ? (string) $intent['id'] : '';
+        $order = $id !== '' ? $this->orderRepository->findByPaymentIntent($id) : null;
+
+        $orderNumber = $intent['metadata']['order_number'] ?? null;
+
+        if (! $order && is_string($orderNumber) && $orderNumber !== '') {
+            $order = $this->orderRepository->findByOrderNumber($orderNumber);
+        }
+
+        return $order;
+    }
+
+    /**
+     * @param  array<string, mixed>  $intent
+     * @return array{ok:bool,message:string}
+     */
+    protected function intentMatchesOrder(Order $order, array $intent): array
+    {
+        $expected = CurrencyHelper::stripeAmount((float) ($order->entry()->value('grand_total') ?? $order->total()));
+        $amount = (int) ($intent['amount'] ?? -1);
+        $currency = strtolower((string) ($intent['currency'] ?? ''));
+        $status = (string) ($intent['status'] ?? '');
+
+        if ($status !== 'succeeded' || $amount !== $expected || $currency !== CurrencyHelper::stripeCurrency()) {
+            Log::error('Stripe webhook payment did not match the order.', [
+                'order_number' => $order->orderNumber(),
+                'payment_intent' => $intent['id'] ?? null,
+                'status' => $status,
+                'amount' => $amount,
+                'expected' => $expected,
+            ]);
+
+            return [
+                'ok' => false,
+                'message' => 'The payment does not match this order.',
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'message' => '',
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $intent
+     */
+    protected function writeOrderPayment(Order $order, array $intent, bool $paid): void
+    {
+        $entry = $order->entry();
+        $data = $entry->data()->all();
+        $data['is_paid'] = $paid;
+        $data['payment_status'] = $paid ? 'paid' : 'failed';
+        $data['payment_intent'] = $intent['id'] ?? ($data['payment_intent'] ?? null);
+
+        if (! empty($intent['latest_charge']) && is_string($intent['latest_charge'])) {
+            $data['charge_id'] = $intent['latest_charge'];
+        }
+
+        $note = $paid ? 'Payment confirmed ' : 'Payment failed ';
+        $data['status_log'] = trim(($data['status_log'] ?? '')."\n".$note.now()->toDateTimeString());
+        $entry->data($data)->save();
     }
 
 

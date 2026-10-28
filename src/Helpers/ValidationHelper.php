@@ -43,7 +43,7 @@ class ValidationHelper
     public static function validateCheckoutPayment(array $data): array
     {
         return Validator::make($data, [
-            'payment_method' => 'required|string|in:credit_card,paypal,stripe,bank_transfer',
+            'payment_method' => 'required|string|in:credit_card,stripe,bank_transfer',
             'coupon_code' => 'nullable|string',
         ])->validate();
     }
