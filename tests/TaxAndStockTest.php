@@ -15,6 +15,7 @@ class TaxAndStockTest extends TestCase
         parent::setUp();
 
         \Illuminate\Support\Facades\Mail::fake();
+        $this->resetStoreSettings();
         Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
         Config::set('webbycommerce.tax.engine', 'basic');
         Config::set('webbycommerce.tax.rate', 0.2);

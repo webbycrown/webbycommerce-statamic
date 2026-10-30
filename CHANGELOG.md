@@ -2,7 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## 1.2.0 — 2026-10-30
+
+### Changed
+
+- Requires Statamic 6 (`statamic/cms: ^6.0`) and PHP 8.3+.
+- Entry queries use `whereStatus()` for Statamic publishing status. Product and order blueprint status fields are filtered without `where('status')`, which Statamic 6 rejects.
+- The Control Panel shopping-cart icon uses the Statamic 6 icon path.
+- `webbycommerce:install` writes the settings Global Set and its site variables as separate Statamic 6 files.
 
 ### Fixed
 

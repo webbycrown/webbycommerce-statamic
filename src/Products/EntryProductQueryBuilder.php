@@ -9,6 +9,7 @@ class EntryProductQueryBuilder
 {
     protected string $collection;
     protected $query;
+    protected ?string $storeStatus = null;
 
     public function __construct(string $collection)
     {
@@ -18,7 +19,8 @@ class EntryProductQueryBuilder
 
     public function whereStatus(string $status): self
     {
-        $this->query->where('status', $status);
+        // Blueprint field, not Statamic publishing status.
+        $this->storeStatus = $status;
         return $this;
     }
 
@@ -36,13 +38,13 @@ class EntryProductQueryBuilder
 
     public function whereInStock(): self
     {
-        $this->query->where('status', 'active')
-            ->where(function ($query) {
-                $query->where('track_stock', false)
-                    ->orWhere('track_inventory', false)
-                    ->orWhere('stock', '>', 0)
-                    ->orWhere('quantity', '>', 0);
-            });
+        $this->storeStatus = 'active';
+        $this->query->where(function ($query) {
+            $query->where('track_stock', false)
+                ->orWhere('track_inventory', false)
+                ->orWhere('stock', '>', 0)
+                ->orWhere('quantity', '>', 0);
+        });
         return $this;
     }
 
@@ -70,13 +72,13 @@ class EntryProductQueryBuilder
 
     public function get(): Collection
     {
-        return $this->query->get()
+        return $this->entries()
             ->map(fn ($entry) => Product::fromEntry($entry));
     }
 
     public function first(): ?Product
     {
-        $entry = $this->query->first();
+        $entry = $this->entries()->first();
         return $entry ? Product::fromEntry($entry) : null;
     }
 
@@ -87,11 +89,24 @@ class EntryProductQueryBuilder
 
     public function count(): int
     {
-        return $this->query->count();
+        return $this->entries()->count();
     }
 
     public function exists(): bool
     {
-        return $this->query->exists();
+        return $this->entries()->isNotEmpty();
+    }
+
+    protected function entries(): Collection
+    {
+        $entries = $this->query->get();
+
+        if ($this->storeStatus !== null) {
+            $entries = $entries
+                ->filter(fn ($entry) => $entry->get('status') === $this->storeStatus)
+                ->values();
+        }
+
+        return $entries;
     }
 }

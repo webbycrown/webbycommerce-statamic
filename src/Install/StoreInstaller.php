@@ -242,56 +242,83 @@ class StoreInstaller
             Log::info('WebbyCommerce globals blueprint published.');
         }
 
-        // Create default globals content if it doesn't exist
+        $defaults = [
+            'currency' => 'USD',
+            'shipping_locations' => [
+                [
+                    'country' => '*',
+                    'state' => '*',
+                    'city' => '*',
+                    'zip_code' => '*',
+                    'shipping_charge' => 5.00,
+                    'min_order_amount' => null,
+                    'max_order_amount' => null,
+                    'is_active' => true,
+                ],
+            ],
+            'shipping_default_method' => 'standard',
+            'shipping_fallback_cost' => 0,
+            'shipping_fallback_name' => 'Standard Shipping',
+            'shipping_fallback_description' => 'Default shipping rate',
+            'shipping_threshold_express' => 500,
+            'shipping_threshold_overnight' => 1500,
+            'payment_gateway' => 'stripe',
+            'store_email' => 'admin@example.com',
+            'order_number_prefix' => 'ORD',
+            'order_status_flow' => ['pending', 'processing', 'shipped', 'delivered'],
+            'cart_session_key' => 'cart',
+            'cart_expires_days' => 7,
+            'email_order_confirmation_enabled' => true,
+            'email_order_confirmation_to_customer' => true,
+            'email_order_confirmation_to_admin' => true,
+            'email_order_shipped_enabled' => true,
+        ];
+
+        // Statamic 6 keeps the set and the site variables in separate files.
         $globalsFile = $globalsPath.'/webbycommerce_settings.yaml';
+        $siteHandle = 'default';
+        $variablesDir = $globalsPath.'/'.$siteHandle;
+        $variablesFile = $variablesDir.'/webbycommerce_settings.yaml';
 
         if (! File::exists($globalsFile)) {
-            $defaults = [
+            File::put($globalsFile, Yaml::dump([
                 'title' => 'WebbyCommerce Settings',
-                'data' => [
-                    'currency' => 'USD',
-                    'shipping_locations' => [
-                                [
-                                    'country' => '*',
-                                    'state' => '*',
-                                    'city' => '*',
-                                    'zip_code' => '*',
-                                    'shipping_charge' => 5.00,
-                                    'min_order_amount' => null,
-                                    'max_order_amount' => null,
-                                    'is_active' => true,
-                                ],
-                            ],
-                    'shipping_default_method' => 'standard',
-                    'shipping_fallback_cost' => 0,
-                    'shipping_fallback_name' => 'Standard Shipping',
-                    'shipping_fallback_description' => 'Default shipping rate',
-                    'shipping_threshold_express' => 500,
-                    'shipping_threshold_overnight' => 1500,
-                    'payment_gateway' => 'stripe',
-                    'store_email' => 'admin@example.com',
-                    'order_number_prefix' => 'ORD',
-                    'order_status_flow' => ['pending', 'processing', 'shipped', 'delivered'],
-                    'cart_session_key' => 'cart',
-                    'cart_expires_days' => 7,
-                    'email_order_confirmation_enabled' => true,
-                    'email_order_confirmation_to_customer' => true,
-                    'email_order_confirmation_to_admin' => true,
-                    'email_order_shipped_enabled' => true,
+                'sites' => [
+                    $siteHandle => null,
                 ],
-            ];
-
-            File::put($globalsFile, Yaml::dump($defaults));
-            Log::info('WebbyCommerce globals content created with defaults.');
+            ]));
+            Log::info('WebbyCommerce globals set created.');
         }
 
-        // Register the Global Set if not already present
+        if (! File::exists($variablesFile)) {
+            if (! File::exists($variablesDir)) {
+                File::makeDirectory($variablesDir, 0755, true);
+            }
+
+            File::put($variablesFile, Yaml::dump($defaults));
+            Log::info('WebbyCommerce globals variables created with defaults.');
+        }
+
         try {
-            if (! GlobalSet::findByHandle('webbycommerce_settings')) {
+            $globalSet = GlobalSet::findByHandle('webbycommerce_settings');
+
+            if (! $globalSet) {
                 $globalSet = GlobalSet::make('webbycommerce_settings')
-                    ->title('WebbyCommerce Settings');
+                    ->title('WebbyCommerce Settings')
+                    ->sites([$siteHandle => null]);
                 $globalSet->save();
                 Log::info('Global set registered: webbycommerce_settings');
+            }
+
+            $variables = $globalSet->in($siteHandle) ?? $globalSet->inDefaultSite();
+
+            if ($variables && blank($variables->get('currency'))) {
+                foreach ($defaults as $key => $value) {
+                    if ($variables->get($key) === null) {
+                        $variables->set($key, $value);
+                    }
+                }
+                $variables->save();
             }
         } catch (\Exception $e) {
             Log::error('Global set registration failed', [

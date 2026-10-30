@@ -32,6 +32,7 @@ class InstallCommandTest extends TestCase
         }
 
         File::delete(base_path('content/globals/webbycommerce_settings.yaml'));
+        File::delete(base_path('content/globals/default/webbycommerce_settings.yaml'));
         File::delete(base_path('resources/blueprints/globals/webbycommerce_settings.yaml'));
 
         if (isset($this->emptyStache)) {
@@ -55,6 +56,7 @@ class InstallCommandTest extends TestCase
         }
 
         $this->assertFileExists(base_path('content/globals/webbycommerce_settings.yaml'));
+        $this->assertFileExists(base_path('content/globals/default/webbycommerce_settings.yaml'));
         $this->assertFileExists(base_path('resources/blueprints/globals/webbycommerce_settings.yaml'));
     }
 }

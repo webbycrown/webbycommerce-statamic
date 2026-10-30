@@ -49,7 +49,7 @@ class EntryCustomerRepository
     {
         return Entry::query()
             ->where('collection', $this->collection)
-            ->where('status', $status)
+            ->whereStatus($status)
             ->get()
             ->map(fn ($entry) => Customer::fromEntry($entry));
     }

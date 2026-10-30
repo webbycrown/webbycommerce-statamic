@@ -17,6 +17,34 @@ abstract class TestCase extends AddonTestCase
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
     }
 
+    protected function resetStoreSettings(): void
+    {
+        \Illuminate\Support\Facades\Config::set('webbycommerce.currency', 'USD');
+
+        $globalSet = \Statamic\Facades\GlobalSet::findByHandle('webbycommerce_settings');
+        if (! $globalSet) {
+            $globalSet = \Statamic\Facades\GlobalSet::make('webbycommerce_settings')
+                ->title('WebbyCommerce Settings')
+                ->sites(['default' => null]);
+            $globalSet->save();
+        }
+
+        $variables = $globalSet->inDefaultSite() ?? $globalSet->in('default');
+        if (! $variables) {
+            $variables = $globalSet->makeLocalization('default');
+        }
+
+        $variables->set('currency', 'USD');
+        $variables->set('shipping_locations', []);
+        $variables->save();
+
+        try {
+            app(\WebbyCrown\WebbyCommerceStatamic\Shipping\ShippingManager::class)->reload();
+        } catch (\Throwable $e) {
+            // Shipping manager may not be resolved yet.
+        }
+    }
+
     protected function fakeSuccessfulPaymentIntent(): void
     {
         Http::fake([

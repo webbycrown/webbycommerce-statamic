@@ -67,10 +67,12 @@ class EntryOrderRepository
 
     public function whereStatus(string $status): Collection
     {
+        // Order "status" is a blueprint field, not Statamic's publishing status.
         return Entry::query()
             ->where('collection', $this->collection)
-            ->where('status', $status)
             ->get()
+            ->filter(fn ($entry) => $entry->get('status') === $status)
+            ->values()
             ->map(fn ($entry) => Order::fromEntry($entry));
     }
 

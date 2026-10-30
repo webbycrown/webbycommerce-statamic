@@ -57,10 +57,13 @@ class EntryProductRepository
 
     public function whereStatus(string $status): Collection
     {
+        // Product "status" is a blueprint field (active/draft), not Statamic's
+        // publishing status. Statamic 6 rejects where('status') on entries.
         return Entry::query()
             ->where('collection', $this->collection)
-            ->where('status', $status)
             ->get()
+            ->filter(fn ($entry) => $entry->get('status') === $status)
+            ->values()
             ->map(fn ($entry) => Product::fromEntry($entry));
     }
 
@@ -86,7 +89,6 @@ class EntryProductRepository
     {
         return Entry::query()
             ->where('collection', $this->collection)
-            ->where('status', 'active')
             ->where(function ($query) {
                 $query->where('track_stock', false)
                     ->orWhere('track_inventory', false)
@@ -94,6 +96,8 @@ class EntryProductRepository
                     ->orWhere('quantity', '>', 0);
             })
             ->get()
+            ->filter(fn ($entry) => $entry->get('status') === 'active')
+            ->values()
             ->map(fn ($entry) => Product::fromEntry($entry));
     }
 

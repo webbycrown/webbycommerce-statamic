@@ -218,7 +218,7 @@ class ServiceProvider extends AddonServiceProvider
         Nav::extend(function ($nav) {
             $nav->content('WebbyCommerce')
                 ->route('collections.show', 'products')
-                ->icon(Statamic::svg('icons/plump/shopping-cart'))
+                ->icon(Statamic::svg('icons/shopping-cart'))
                 ->children([
                     'Products' => cp_route('collections.show', 'products'),
                     'Orders' => cp_route('collections.show', 'orders'),

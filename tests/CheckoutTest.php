@@ -13,6 +13,7 @@ class CheckoutTest extends TestCase
         parent::setUp();
 
         \Illuminate\Support\Facades\Mail::fake();
+        $this->resetStoreSettings();
 
         Config::set('webbycommerce.tax.rate', 0.1);
 
@@ -896,13 +897,14 @@ class CheckoutTest extends TestCase
         Config::set('webbycommerce.currency', 'USD');
         $variables = \Statamic\Facades\GlobalSet::findByHandle('webbycommerce_settings')?->inDefaultSite();
         $this->assertNotNull($variables);
-        $variables->set('currency', $currency);
+        $variables->set('currency', $currency)->save();
     }
 
     private function setShippingLocations(array $locations): void
     {
         $variables = \Statamic\Facades\GlobalSet::findByHandle('webbycommerce_settings')?->inDefaultSite();
         $this->assertNotNull($variables);
-        $variables->set('shipping_locations', $locations);
+        $variables->set('shipping_locations', $locations)->save();
+        app(\WebbyCrown\WebbyCommerceStatamic\Shipping\ShippingManager::class)->reload();
     }
 }

@@ -18,7 +18,7 @@ class EntryCustomerQueryBuilder
 
     public function whereStatus(string $status): self
     {
-        $this->query->where('status', $status);
+        $this->query->whereStatus($status);
         return $this;
     }
 

@@ -1,6 +1,6 @@
 # WebbyCommerce for Statamic
 
-A Statamic 5 add-on for managing products, orders, customers, coupons, taxes, shipping, cart, wishlist, and checkout through collections, globals, Antlers tags, and `/shop` JSON endpoints.
+A Statamic 6 add-on for managing products, orders, customers, coupons, taxes, shipping, cart, wishlist, and checkout through collections, globals, Antlers tags, and `/shop` JSON endpoints.
 
 ## Overview
 
@@ -12,8 +12,8 @@ A Statamic 5 add-on for managing products, orders, customers, coupons, taxes, sh
 
 ## Requirements
 
-- Statamic 5 (`statamic/cms: ^5.0`)
-- PHP 8.1+
+- Statamic 6 (`statamic/cms: ^6.0`)
+- PHP 8.3+
 - Composer
 
 ## Installation
@@ -25,7 +25,7 @@ composer require webbycrown/webbycommerce-statamic
 php please webbycommerce:install
 ```
 
-That constraint resolves `webbycrown/webbycommerce-statamic` `^1.1`, including `v1.1.5` and later. The package requires Statamic 5.
+That constraint resolves `webbycrown/webbycommerce-statamic` `^1.2`, including `v1.2.0` and later. The package requires Statamic 6.
 
 `webbycommerce:install` creates the store collections, blueprints, and settings once. It does not change a products or customers collection the site already has. Boot no longer writes those files.
 

@@ -9,6 +9,7 @@ class EntryOrderQueryBuilder
 {
     protected string $collection;
     protected $query;
+    protected ?string $storeStatus = null;
 
     public function __construct(string $collection)
     {
@@ -18,7 +19,8 @@ class EntryOrderQueryBuilder
 
     public function whereStatus(string $status): self
     {
-        $this->query->where('status', $status);
+        // Blueprint field, not Statamic publishing status.
+        $this->storeStatus = $status;
         return $this;
     }
 
@@ -70,13 +72,13 @@ class EntryOrderQueryBuilder
 
     public function get(): Collection
     {
-        return $this->query->get()
+        return $this->entries()
             ->map(fn ($entry) => Order::fromEntry($entry));
     }
 
     public function first(): ?Order
     {
-        $entry = $this->query->first();
+        $entry = $this->entries()->first();
         return $entry ? Order::fromEntry($entry) : null;
     }
 
@@ -87,11 +89,24 @@ class EntryOrderQueryBuilder
 
     public function count(): int
     {
-        return $this->query->count();
+        return $this->entries()->count();
     }
 
     public function exists(): bool
     {
-        return $this->query->exists();
+        return $this->entries()->isNotEmpty();
+    }
+
+    protected function entries(): Collection
+    {
+        $entries = $this->query->get();
+
+        if ($this->storeStatus !== null) {
+            $entries = $entries
+                ->filter(fn ($entry) => $entry->get('status') === $this->storeStatus)
+                ->values();
+        }
+
+        return $entries;
     }
 }

@@ -28,7 +28,7 @@ class StandardTaxEngine implements TaxEngine
     {
         $this->taxRates = Entry::query()
             ->where('collection', 'tax_rates')
-            ->where('status', 'published')
+            ->whereStatus('published')
             ->get();
     }
 
@@ -377,7 +377,7 @@ class StandardTaxEngine implements TaxEngine
         if ($this->taxZones === null) {
             $this->taxZones = Entry::query()
                 ->where('collection', 'tax_zones')
-                ->where('status', 'published')
+                ->whereStatus('published')
                 ->get();
         }
 
