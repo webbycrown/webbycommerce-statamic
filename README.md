@@ -70,7 +70,7 @@ WebbyCommerce does **not** mark a card checkout as paid unless the Stripe Paymen
 
 | Method | Behaviour |
 | --- | --- |
-| **Stripe** (`stripe` / `credit_card`) | Requires `STRIPE_SECRET_KEY`. The browser confirms the card with Stripe.js and sends a PaymentMethod id (`pm_...`) or, after authentication, a PaymentIntent id (`pi_...`). Card numbers and CVVs must never be posted to your server. If the intent needs Strong Customer Authentication, checkout returns `requires_action` and `client_secret` and does **not** mark the order paid. The browser finishes that step with `stripe.confirmCardPayment`, then sends the PaymentIntent id. The order is paid only after Stripe reports `succeeded` for the same amount and currency. Amounts use that currency's minor units: dollars are sent as cents, and yen are sent as yen. The currency is the Control Panel currency. If the payment succeeds and the order still cannot be saved, WebbyCommerce refunds that PaymentIntent and writes its id to the log. |
+| **Stripe** (`stripe` / `credit_card`) | Requires `STRIPE_SECRET_KEY`. The browser confirms the card with Stripe.js and sends a PaymentMethod id (`pm_...`) or, after authentication, a PaymentIntent id (`pi_...`). Card numbers and CVVs must never be posted to the server. If the intent needs Strong Customer Authentication, checkout returns `requires_action` and `client_secret` and does **not** mark the order paid. The browser finishes that step with `stripe.confirmCardPayment`, then sends the PaymentIntent id. The order is paid only after Stripe reports `succeeded` for the same amount and currency, and only when that intent is not already stored on another order. A declined or failed card attempt clears the Stripe idempotency key so the next attempt can create a new PaymentIntent. Amounts use that currency's minor units: dollars are sent as cents, and yen are sent as yen. The currency is the Control Panel currency. If the payment succeeds and the order still cannot be saved, WebbyCommerce refunds that PaymentIntent and writes its id to the log. |
 | **Bank transfer** | Order is created as **pending / unpaid** for manual reconciliation. |
 | **Webhooks** | `POST /shop/payment/webhook` is outside the `web` middleware, so Laravel's CSRF protection does not reject Stripe. When `STRIPE_WEBHOOK_SECRET` is set, the route checks `Stripe-Signature`. A verified `payment_intent.succeeded` event marks the matching order paid when the amount and currency match. `payment_intent.payment_failed` marks an unpaid order failed. A paid order is not changed to unpaid. |
 
@@ -144,7 +144,7 @@ WEBBYCOMMERCE_PAYMENT_WEBHOOK_URL=https://example.com/shop/payment/webhook
 Base prefix: `/shop`
 
 | Method | URI | Description |
-| --- | --- |
+| --- | --- | --- |
 | GET | `/shop/products` | Product listing |
 | GET | `/shop/products/{slug}` | Product detail |
 | GET | `/shop/cart` | Cart page |
@@ -162,7 +162,7 @@ Base prefix: `/shop`
 API endpoints:
 
 | Method | URI | Description |
-| --- | --- |
+| --- | --- | --- |
 | GET | `/shop/api/cart` | Get cart contents |
 | GET | `/shop/api/cart/count` | Cart count |
 | POST | `/shop/api/coupon/validate` | Validate coupon |

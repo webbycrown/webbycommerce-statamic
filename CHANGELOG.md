@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.1 — 2026-10-30
+
+### Fixed
+
+- A PaymentIntent that is already stored on an order cannot pay a second checkout. Checkout rejects that `pi_...` before Stripe is called again.
+- A declined or failed Stripe card attempt clears `checkout.stripe_idempotency`, so a later attempt in the same session is not blocked by Stripe's idempotency rules when the order number changes.
+- `GET /shop/checkout/success/{orderNumber}` looks up the order. An unknown number returns 404 instead of a fake completed status.
+- README route tables use three separator cells so Markdown renders them as tables.
+
 ## 1.2.0 — 2026-10-30
 
 ### Changed

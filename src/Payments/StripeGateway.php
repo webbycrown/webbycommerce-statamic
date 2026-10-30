@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use WebbyCrown\WebbyCommerceStatamic\Helpers\CurrencyHelper;
+use WebbyCrown\WebbyCommerceStatamic\Orders\EntryOrderRepository;
 
 class StripeGateway
 {
@@ -45,6 +46,10 @@ class StripeGateway
             if ($intentId !== '') {
                 if (! preg_match('/^pi_[A-Za-z0-9_]+$/', $intentId)) {
                     return $this->fail('The PaymentIntent id is not valid.', 422);
+                }
+
+                if (app(EntryOrderRepository::class)->findByPaymentIntent($intentId)) {
+                    return $this->fail('This payment has already been used for an order.', 422);
                 }
 
                 $response = Http::withBasicAuth($secret, '')
@@ -265,6 +270,9 @@ class StripeGateway
      */
     protected function fail(string $message, int $status): array
     {
+        // Drop the key so a later card attempt is not locked to the failed request's parameters.
+        $this->forgetIdempotencyKey();
+
         return [
             'ok' => false,
             'is_paid' => false,
@@ -284,5 +292,10 @@ class StripeGateway
         }
 
         return 'wc-'.$key;
+    }
+
+    protected function forgetIdempotencyKey(): void
+    {
+        Session::forget('checkout.stripe_idempotency');
     }
 }

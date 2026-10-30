@@ -124,10 +124,22 @@ class CheckoutController
 
     public function success(string $orderNumber)
     {
+        $order = $this->orderRepository->findByOrderNumber($orderNumber);
+
+        if (! $order) {
+            return response()->json([
+                'success' => false,
+                'order_number' => $orderNumber,
+                'message' => 'Order not found.',
+            ], 404);
+        }
+
         return response()->json([
             'success' => true,
-            'order_number' => $orderNumber,
-            'status' => 'completed',
+            'order_number' => $order->orderNumber(),
+            'status' => $order->status(),
+            'payment_status' => $order->paymentStatus(),
+            'is_paid' => $order->isPaid(),
         ]);
     }
 

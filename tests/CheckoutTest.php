@@ -674,6 +674,132 @@ class CheckoutTest extends TestCase
         $this->assertNull(\Statamic\Facades\Entry::query()->where('collection', 'orders')->where('payment_intent', 'pi_small')->first());
     }
 
+    public function test_a_payment_intent_already_on_an_order_cannot_pay_again(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+        $intentId = 'pi_used_'.strtolower(\Illuminate\Support\Str::random(8));
+        $orderNumber = 'ORD-USED-'.strtoupper(\Illuminate\Support\Str::random(6));
+
+        \Statamic\Facades\Entry::make()
+            ->collection('orders')
+            ->slug(strtolower($orderNumber))
+            ->published(true)
+            ->data([
+                'title' => $orderNumber,
+                'order_number' => $orderNumber,
+                'payment_intent' => $intentId,
+                'payment_status' => 'paid',
+                'is_paid' => true,
+                'grand_total' => 100,
+                'total' => 100,
+            ])
+            ->save();
+
+        Http::fake([
+            'https://api.stripe.com/v1/payment_intents/'.$intentId => Http::response([
+                'id' => $intentId,
+                'status' => 'succeeded',
+                'amount' => 10000,
+                'currency' => 'usd',
+                'latest_charge' => 'ch_used',
+            ], 200),
+        ]);
+
+        $response = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'payment_intent' => $intentId,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $this->assertStringContainsString('already been used', $response->json('message'));
+        $this->assertSame(
+            1,
+            \Statamic\Facades\Entry::query()->where('collection', 'orders')->where('payment_intent', $intentId)->count()
+        );
+        Http::assertNothingSent();
+    }
+
+    public function test_a_declined_card_clears_idempotency_so_a_retry_can_charge(): void
+    {
+        Config::set('webbycommerce.payment.gateways.stripe.secret_key', 'sk_test_mock_secret_key');
+        $keys = [];
+
+        Http::fake([
+            'https://api.stripe.com/v1/payment_intents' => function ($request) use (&$keys) {
+                $header = $request->header('Idempotency-Key');
+                $keys[] = is_array($header) ? ($header[0] ?? null) : $header;
+
+                if (count($keys) === 1) {
+                    return Http::response([
+                        'error' => [
+                            'message' => 'Your card was declined.',
+                            'type' => 'card_error',
+                            'code' => 'card_declined',
+                        ],
+                    ], 402);
+                }
+
+                return Http::response([
+                    'id' => 'pi_retry_ok',
+                    'object' => 'payment_intent',
+                    'status' => 'succeeded',
+                    'amount' => (int) $request['amount'],
+                    'currency' => (string) $request['currency'],
+                    'client_secret' => 'pi_retry_ok_secret',
+                    'latest_charge' => 'ch_retry_ok',
+                ], 200);
+            },
+        ]);
+
+        $declined = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_payment_method' => 'pm_card_declined',
+        ]);
+
+        $declined->assertStatus(400);
+        $declined->assertJsonPath('success', false);
+        $this->assertNull(Session::get('checkout.stripe_idempotency'));
+
+        $retry = $this->postJson(route('shop.checkout.complete'), [
+            'payment_method' => 'stripe',
+            'stripe_payment_method' => 'pm_card_visa',
+        ]);
+
+        $retry->assertOk();
+        $retry->assertJsonPath('success', true);
+        $this->assertCount(2, $keys);
+        $this->assertNotSame($keys[0], $keys[1]);
+    }
+
+    public function test_checkout_success_looks_up_the_order(): void
+    {
+        $orderNumber = 'ORD-OK-'.strtoupper(\Illuminate\Support\Str::random(6));
+        \Statamic\Facades\Entry::make()
+            ->collection('orders')
+            ->slug(strtolower($orderNumber))
+            ->published(true)
+            ->data([
+                'title' => $orderNumber,
+                'order_number' => $orderNumber,
+                'status' => 'pending',
+                'payment_status' => 'paid',
+                'is_paid' => true,
+            ])
+            ->save();
+
+        $found = $this->getJson(route('shop.checkout.success', ['orderNumber' => $orderNumber]));
+        $found->assertOk();
+        $found->assertJsonPath('success', true);
+        $found->assertJsonPath('order_number', $orderNumber);
+        $found->assertJsonPath('payment_status', 'paid');
+        $found->assertJsonPath('is_paid', true);
+
+        $missing = $this->getJson(route('shop.checkout.success', ['orderNumber' => 'ORD-MISSING']));
+        $missing->assertStatus(404);
+        $missing->assertJsonPath('success', false);
+    }
+
     public function test_webhook_route_is_outside_the_web_middleware(): void
     {
         $webhook = \Illuminate\Support\Facades\Route::getRoutes()->getByName('shop.checkout.payment.webhook');
